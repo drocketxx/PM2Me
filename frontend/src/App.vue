@@ -4,10 +4,7 @@
       <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div class="flex justify-between h-16 items-center">
           <div class="flex items-center space-x-3">
-            <div
-              class="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold shadow-lg shadow-blue-500/30">
-              P
-            </div>
+          <img src="/icon.png" alt="PM2Me" class="w-8 h-8 rounded-lg shadow-lg shadow-blue-500/30 cursor-pointer" @click="$router.push('/')" />
             <span
               class="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-indigo-400 cursor-pointer"
               @click="$router.push('/')">PM2Me</span>
