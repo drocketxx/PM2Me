@@ -3,6 +3,73 @@
     <!-- Server Monitor Section -->
     <ServerStats />
 
+    <!-- PM2 Status Widget -->
+    <div class="rounded-2xl border flex items-center justify-between px-6 py-4 shadow-xl backdrop-blur-sm transition-all"
+      :class="!pm2Status.loaded || pm2Status.isChecking
+        ? 'bg-slate-800/60 border-slate-700'
+        : !pm2Status.installed 
+          ? 'bg-red-500/5 border-red-500/30' 
+          : pm2Status.hasUpdate 
+            ? 'bg-amber-500/5 border-amber-500/30' 
+            : 'bg-emerald-500/5 border-emerald-500/20'">
+      <div class="flex items-center space-x-4">
+        <!-- Icon -->
+        <div class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
+          :class="!pm2Status.loaded || pm2Status.isChecking ? 'bg-slate-700' : !pm2Status.installed ? 'bg-red-500/20' : pm2Status.hasUpdate ? 'bg-amber-500/20' : 'bg-emerald-500/20'">
+          <!-- Spinner while checking -->
+          <svg v-if="!pm2Status.loaded || pm2Status.isChecking" class="animate-spin w-5 h-5 text-slate-400" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+          </svg>
+          <svg v-else-if="!pm2Status.installed" class="w-5 h-5 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M5.07 19H19a2 2 0 001.75-2.96L13.75 4a2 2 0 00-3.5 0L3.25 16.04A2 2 0 005.07 19z"/>
+          </svg>
+          <svg v-else-if="pm2Status.hasUpdate" class="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+          <svg v-else class="w-5 h-5 text-emerald-400" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+          </svg>
+        </div>
+        <!-- Text -->
+        <div>
+          <p v-if="!pm2Status.loaded || pm2Status.isChecking" class="text-sm font-semibold text-slate-400">Checking PM2 status...</p>
+          <p v-else-if="!pm2Status.installed" class="text-sm font-semibold text-red-400">PM2 is not installed</p>
+          <p v-else-if="pm2Status.hasUpdate" class="text-sm font-semibold text-amber-400">PM2 update available</p>
+          <p v-else class="text-sm font-semibold text-emerald-400">PM2 is up to date</p>
+          <p v-if="pm2Status.loaded && !pm2Status.isChecking && pm2Status.installed" class="text-xs text-slate-500 mt-0.5">
+            Installed: <span class="text-slate-300 font-mono">v{{ pm2Status.version }}</span>
+            <span v-if="pm2Status.hasUpdate"> → Latest: <span class="text-amber-300 font-mono">v{{ pm2Status.latestVersion }}</span></span>
+          </p>
+          <p v-else-if="pm2Status.loaded && !pm2Status.isChecking && !pm2Status.installed" class="text-xs text-slate-500 mt-0.5">PM2 is required to run and manage applications</p>
+        </div>
+      </div>
+      <!-- Actions -->
+      <div class="flex items-center space-x-2 flex-shrink-0">
+        <button v-if="pm2Status.loaded && !pm2Status.isChecking && pm2Status.isActing" disabled
+          class="flex items-center px-4 py-2 rounded-xl text-sm font-medium bg-slate-700 text-slate-400 cursor-wait">
+          <svg class="animate-spin w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+          {{ pm2Status.installed ? 'Updating...' : 'Installing...' }}
+        </button>
+        <button v-else-if="pm2Status.loaded && !pm2Status.isChecking && !pm2Status.installed" @click="pm2InstallOrUpdate"
+          class="flex items-center px-4 py-2 rounded-xl text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white transition-all shadow-lg shadow-blue-500/20">
+          <svg class="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+          Install PM2
+        </button>
+        <button v-else-if="pm2Status.loaded && !pm2Status.isChecking && pm2Status.hasUpdate" @click="pm2InstallOrUpdate"
+          class="flex items-center px-4 py-2 rounded-xl text-sm font-medium bg-amber-500 hover:bg-amber-400 text-white transition-all shadow-lg shadow-amber-500/20">
+          <svg class="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          Update PM2
+        </button>
+        <button @click="fetchPm2Status" :disabled="pm2Status.isChecking"
+          class="p-2 text-slate-400 hover:text-white transition-colors" title="Refresh">
+          <svg class="w-4 h-4" :class="{ 'animate-spin': pm2Status.isChecking }" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
     <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
       <div>
         <h1 class="text-3xl font-bold text-white tracking-tight">Applications</h1>
@@ -541,6 +608,37 @@ const activeMenuId = ref(null)
 const showDeleteConfirm = ref(false)
 const appPendingDeletion = ref(null)
 
+const pm2Status = ref({ loaded: false, installed: false, version: null, latestVersion: null, hasUpdate: false, isChecking: false, isActing: false })
+
+const fetchPm2Status = async () => {
+  pm2Status.value.isChecking = true
+  try {
+    const res = await fetch('/api/pm2/version-check', {
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('pm2me_token')}` }
+    })
+    const data = await res.json()
+    pm2Status.value = { ...pm2Status.value, ...data, loaded: true, isChecking: false }
+  } catch {
+    pm2Status.value.isChecking = false
+    pm2Status.value.loaded = true
+  }
+}
+
+const pm2InstallOrUpdate = async () => {
+  pm2Status.value.isActing = true
+  try {
+    await fetch('/api/pm2/install-update', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('pm2me_token')}` }
+    })
+    await fetchPm2Status()
+  } catch {
+    // ignore
+  } finally {
+    pm2Status.value.isActing = false
+  }
+}
+
 const toggleMenu = (id) => {
   activeMenuId.value = activeMenuId.value === id ? null : id
 }
@@ -881,6 +979,7 @@ onMounted(async () => {
   await fetchApps()
   setupSocket()
   pollInterval = setInterval(fetchApps, 12345)
+  fetchPm2Status()
 })
 
 onUnmounted(() => {

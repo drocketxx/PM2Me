@@ -37,6 +37,58 @@ router.get('/system/stats', async (req, res) => {
     }
 });
 
+// GET PM2 version and update check
+const execAsync = util.promisify(exec);
+router.get('/pm2/version-check', async (req, res) => {
+    try {
+        // Check globally installed PM2 version via npm (avoids local node_modules/.bin/pm2)
+        let installedVersion = null;
+        try {
+            const { stdout } = await execAsync('npm list -g pm2 --depth=0 --json');
+            const parsed = JSON.parse(stdout);
+            installedVersion = parsed?.dependencies?.pm2?.version || null;
+        } catch {
+            // not installed globally
+        }
+
+        if (!installedVersion) {
+            return res.json({ installed: false });
+        }
+
+        // Get latest version from npm registry
+        let latestVersion = null;
+        try {
+            const { stdout } = await execAsync('npm view pm2 version');
+            latestVersion = stdout.trim();
+        } catch {
+            latestVersion = null;
+        }
+
+        const hasUpdate = latestVersion && installedVersion !== latestVersion &&
+            latestVersion.localeCompare(installedVersion, undefined, { numeric: true, sensitivity: 'base' }) > 0;
+
+        res.json({ installed: true, version: installedVersion, latestVersion, hasUpdate });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST PM2 install or update
+router.post('/pm2/install-update', async (req, res) => {
+    try {
+        res.writeHead(200, { 'Content-Type': 'text/plain', 'Transfer-Encoding': 'chunked' });
+        const child = exec('npm install -g pm2@latest');
+        child.stdout.on('data', (d) => res.write(d));
+        child.stderr.on('data', (d) => res.write(d));
+        child.on('close', (code) => {
+            res.write(code === 0 ? '\n✅ Done!' : '\n❌ Failed.');
+            res.end();
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // PM2 Action: start, stop, restart, delete
 router.post('/pm2/:action', async (req, res) => {
     const { action } = req.params;
