@@ -4,6 +4,8 @@
 
 PM2Me lets you **deploy apps directly from a GitHub repository**, manage PM2 processes, monitor your server in real-time, and receive webhook-triggered auto-deployments — all from a beautiful, dark-mode UI.
 
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/rocketx.x)
+
 ---
 
 ## ✨ Features
