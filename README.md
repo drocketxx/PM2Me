@@ -48,11 +48,11 @@ PM2Me lets you **deploy apps directly from a GitHub repository**, manage PM2 pro
 - [PM2](https://pm2.keymetrics.io/) installed globally: `npm install -g pm2`
 - [Git](https://git-scm.com/) installed and accessible in `PATH`
 
-### Installation
+### Installation & Running (Recommended with PM2)
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-user/PM2Me.git
+git clone https://github.com/drocketxx/PM2Me.git
 cd PM2Me
 
 # 2. Install all dependencies (frontend + backend)
@@ -60,29 +60,12 @@ npm run install:all
 
 # 3. Build the frontend
 npm run build
-```
 
-### Configuration (Optional)
-
-Create a `.env` file in the `backend/` directory to configure the port or JWT secret:
-
-```env
-PORT=12345
-JWT_SECRET=your-super-secret-key
-```
-
-### Running the App
-
-**✅ Recommended — Production mode with PM2:**
-```bash
-# 1. Build the frontend
-npm run build
-
-# 2. Start PM2Me with PM2
+# 4. Start PM2Me with PM2 ✅ Recommended
 cd backend
 pm2 start app.js --name pm2me
 
-# 3. Auto-start on system reboot
+# 5. Auto-start on system reboot
 pm2 save
 pm2 startup
 ```
@@ -99,6 +82,7 @@ Open your browser at: **http://localhost:12345**
 
 **Development mode** (nodemon auto-restart):
 ```bash
+cd /path/to/PM2Me
 npm run dev
 ```
 
