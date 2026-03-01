@@ -73,21 +73,16 @@ JWT_SECRET=your-super-secret-key
 
 ### Running the App
 
-**Option 1 — Development mode** (with auto-restart via nodemon):
+**✅ Recommended — Production mode with PM2:**
 ```bash
-npm run dev
-```
-
-**Option 2 — Production mode with PM2** (recommended for servers):
-```bash
-# 1. Build the frontend first
+# 1. Build the frontend
 npm run build
 
 # 2. Start PM2Me with PM2
 cd backend
 pm2 start app.js --name pm2me
 
-# 3. Set to auto-start on system reboot
+# 3. Auto-start on system reboot
 pm2 save
 pm2 startup
 ```
@@ -101,6 +96,11 @@ Open your browser at: **http://localhost:12345**
 > pm2 restart pm2me   # Restart PM2Me
 > pm2 stop pm2me      # Stop PM2Me
 > ```
+
+**Development mode** (nodemon auto-restart):
+```bash
+npm run dev
+```
 
 ---
 
