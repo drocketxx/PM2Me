@@ -3,11 +3,13 @@ import db from '../db/index.js';
 import * as pm2Service from '../services/pm2Service.js';
 import * as gitService from '../services/gitService.js';
 import * as notificationService from '../services/notificationService.js';
+import * as systemService from '../services/systemService.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import crypto from 'crypto';
 import { exec } from 'child_process';
+import util from 'util';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const workspacesDir = path.resolve(__dirname, '../../apps');
@@ -25,6 +27,16 @@ router.get('/pm2/list', async (req, res) => {
     }
 });
 
+// GET system stats
+router.get('/system/stats', async (req, res) => {
+    try {
+        const stats = await systemService.getSystemStats();
+        res.json(stats);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // PM2 Action: start, stop, restart, delete
 router.post('/pm2/:action', async (req, res) => {
     const { action } = req.params;
@@ -32,9 +44,19 @@ router.post('/pm2/:action', async (req, res) => {
     try {
         await pm2Service.connectPM2();
         let result;
-        if (action === 'stop') result = await pm2Service.stopApp(nameOrId);
+        if (action === 'start') result = await pm2Service.startApp(nameOrId);
+        else if (action === 'stop') result = await pm2Service.stopApp(nameOrId);
         else if (action === 'restart') result = await pm2Service.restartApp(nameOrId);
+        else if (action === 'reload') result = await pm2Service.reloadApp(nameOrId);
         else if (action === 'delete') result = await pm2Service.deleteApp(nameOrId);
+
+        // Find app by name to emit system log
+        const app = db.data.apps.find(a => a.name === nameOrId);
+        if (app && req.io) {
+            const actionLabel = action.charAt(0).toUpperCase() + action.slice(1);
+            req.io.emit(`deploy-log-${app.id}`, `[pm2me] ${actionLabel}`);
+        }
+
         res.json({ success: true, result });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -58,6 +80,20 @@ router.delete('/apps/:id', async (req, res) => {
     db.data.apps = db.data.apps.filter(app => app.id !== id);
     await db.write();
     res.json({ success: true });
+});
+
+router.get('/apps/:id/sync-status', async (req, res) => {
+    const { id } = req.params;
+    const appConfig = db.data.apps.find(a => a.id === id);
+    if (!appConfig) return res.status(404).json({ error: 'App not found' });
+
+    const targetPath = path.join(workspacesDir, appConfig.name);
+    try {
+        const behindCount = await gitService.getBehindCount(appConfig.repoUrl, targetPath, appConfig.branch, appConfig.token);
+        res.json({ behindCount });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 });
 
 router.put('/apps/:id', async (req, res) => {
@@ -175,91 +211,163 @@ router.get('/git/repositories', async (req, res) => {
     }
 });
 
-// Build and Deploy an App
-router.post('/deploy/:appId', async (req, res) => {
-    const { appId } = req.params;
-    const appConfig = db.data.apps.find(a => a.id === appId);
-    if (!appConfig) return res.status(404).json({ error: 'App not found' });
-
-    const targetPath = path.join(workspacesDir, appConfig.name);
-    const io = req.io;
-
-    const logFilePath = path.join(workspacesDir, `${appConfig.name}_deploy.log`);
-
-    // Ensure workspaces dir exists before writing
-    if (!fs.existsSync(workspacesDir)) {
-        fs.mkdirSync(workspacesDir, { recursive: true });
+const rollback = async (appId, appConfig, io, targetPath, lastStep, logProcess, setPipelineState, logFilePath) => {
+    if (!appConfig.lastSuccessfulCommitHash || appConfig.lastSuccessfulCommitHash === appConfig.commitHash) {
+        logProcess('No stable version to rollback to or already on last good version.', true);
+        return false;
     }
 
-    // Clear previous log file on new deployment
-    fs.writeFileSync(logFilePath, `--- Deployment Started at ${new Date().toISOString()} ---\n`);
-
-    const logProcess = (msg) => {
-        console.log(`[Deploy ${appConfig.name}]`, msg);
-        io.emit(`deploy-log-${appId}`, msg + '\n');
-        fs.appendFileSync(logFilePath, msg + '\n');
-    };
-
+    logProcess(`Initiating Auto-Rollback to last successful commit: ${appConfig.lastSuccessfulCommitHash}`, true);
     try {
-        appConfig.status = 'deploying';
-        await db.write();
-        logProcess('Starting deployment process...');
+        const failedHash = appConfig.commitHash;
+        const failedMsg = appConfig.commitMessage;
 
-        // 1 & 2. Synchronize repository (Clone or Fetch+Reset)
-        logProcess('Synchronizing repository...');
-        const { message: syncMsg, commitHash, commitMessage } = await gitService.syncRepo(appConfig.repoUrl, targetPath, appConfig.branch, appConfig.token);
-        appConfig.commitHash = commitHash;
-        appConfig.commitMessage = commitMessage;
-        logProcess(`Git: ${syncMsg} on branch ${appConfig.branch} (Commit: ${commitMessage})`);
+        // 1. Checkout last good commit
+        const restored = await gitService.checkout(targetPath, appConfig.lastSuccessfulCommitHash);
 
-        // 3. Setup environment variables
-        logProcess('Setting up environment variables...');
+        // 2. Restore successful configuration
+        appConfig.pm2Script = appConfig.lastSuccessfulPm2Script;
+        appConfig.env = JSON.parse(JSON.stringify(appConfig.lastSuccessfulEnv || {}));
+
+        // 3. Re-setup environment files
         const envFileData = Object.entries(appConfig.env || {})
             .map(([k, v]) => `${k}=${v}`)
             .join('\n');
         fs.writeFileSync(path.join(targetPath, '.env'), envFileData);
 
-        // 4. Build Script
+        // 4. Re-run Build if necessary
         if (appConfig.buildScript) {
-            logProcess(`Executing build script...`);
+            logProcess('Re-building original working version...', true);
+            const normalizedScript = appConfig.buildScript.split('\n')
+                .map(s => s.trim())
+                .filter(Boolean)
+                .join(' && ');
             await new Promise((resolve, reject) => {
-                const child = exec(appConfig.buildScript, { cwd: targetPath, maxBuffer: 10 * 1024 * 1024 });
-
-                child.stdout.on('data', data => {
-                    io.emit(`deploy-log-${appId}`, data);
-                    fs.appendFileSync(logFilePath, data);
-                });
-
-                child.stderr.on('data', data => {
-                    io.emit(`deploy-log-${appId}`, data);
-                    fs.appendFileSync(logFilePath, data);
-                });
-
-                child.on('close', code => {
-                    if (code !== 0) {
-                        reject(new Error(`Build script exited with code ${code}`));
-                    } else {
-                        logProcess('Build script completed successfully.');
-                        resolve();
-                    }
-                });
-
-                child.on('error', err => {
-                    reject(err);
-                });
+                const child = exec(normalizedScript, { cwd: targetPath, maxBuffer: 10 * 1024 * 1024 });
+                child.stdout.on('data', data => { io.emit(`deploy-log-${appId}`, data.toString()); fs.appendFileSync(logFilePath, data); });
+                child.stderr.on('data', data => { io.emit(`deploy-log-${appId}`, data.toString()); fs.appendFileSync(logFilePath, data); });
+                child.on('close', code => code !== 0 ? reject(new Error('Rollback build failed')) : resolve());
             });
         }
 
-        // 5. Start with PM2
-        logProcess('Starting application with PM2...');
+        // 5. Restart PM2 with original version
+        logProcess('Restarting PM2 with original version...', true);
+        await pm2Service.connectPM2();
+        const startOpts = {
+            name: appConfig.name,
+            cwd: targetPath,
+            script: appConfig.pm2Script || 'npm',
+            updateEnv: true,
+            env: appConfig.env || {}
+        };
+
+        try {
+            await pm2Service.reloadApp(appConfig.name, startOpts);
+        } catch (e) {
+            try { await pm2Service.deleteApp(appConfig.name); } catch (d) { }
+            await pm2Service.startApp(startOpts);
+        }
+
+        // 6. Update DB to reflect rollback state
+        appConfig.commitHash = restored.hash;
+        appConfig.commitMessage = restored.message;
+        appConfig.rollbackOccurred = true;
+        appConfig.failedCommitHash = failedHash;
+        appConfig.failedCommitMessage = failedMsg;
+        appConfig.status = 'running';
+        await setPipelineState(`failed:${lastStep}`);
+
+        logProcess(`Rollback successful. System is running on commit: ${restored.message}`, true);
+        await db.write();
+        return true;
+    } catch (rollbackErr) {
+        const rbErrorMsg = rollbackErr.message || util.inspect(rollbackErr);
+        logProcess(`Critical: Rollback failed: ${rbErrorMsg}`, true);
+        return false;
+    }
+};
+
+// Helper to normalize Git repo URLs for comparison
+const normalizeRepoUrl = (url) => {
+    if (!url) return '';
+    return url.replace(/\.git$/, '').replace(/\/$/, '').toLowerCase();
+};
+
+export const performDeployment = async (appId, io) => {
+    const appConfig = db.data.apps.find(a => a.id === appId);
+    if (!appConfig) throw new Error('App not found');
+
+    const targetPath = path.join(workspacesDir, appConfig.name);
+    const logFilePath = path.join(workspacesDir, `${appConfig.name}_deploy.log`);
+    let lastStep = 'pulling';
+
+    if (!fs.existsSync(workspacesDir)) {
+        fs.mkdirSync(workspacesDir, { recursive: true });
+    }
+
+    fs.writeFileSync(logFilePath, `--- Deployment Started at ${new Date().toISOString()} ---\n`);
+
+    const logProcess = (msg, isSystem = false) => {
+        const formattedMsg = isSystem ? `[pm2me] ${msg}` : msg;
+        console.log(`[Deploy ${appConfig.name}]`, formattedMsg);
+        io.emit(`deploy-log-${appId}`, formattedMsg + '\n');
+        fs.appendFileSync(logFilePath, formattedMsg + '\n');
+    };
+
+    const setPipelineState = async (state) => {
+        appConfig.pipelineState = state;
+        await db.write();
+        io.emit(`pipeline-state-${appId}`, state);
+        console.log(`[Pipeline ${appConfig.name}]`, state);
+    };
+
+    try {
+        appConfig.status = 'deploying';
+        await db.write();
+        logProcess('Sync', true);
+
+        lastStep = 'pulling';
+        await setPipelineState('pulling');
+        logProcess('Synchronizing Repository', true);
+        const { message: syncMsg, commitHash, commitMessage } = await gitService.syncRepo(appConfig.repoUrl, targetPath, appConfig.branch, appConfig.token);
+        appConfig.commitHash = commitHash;
+        appConfig.commitMessage = commitMessage;
+        logProcess(`Git: ${syncMsg} on branch ${appConfig.branch} (Commit: ${commitMessage})`);
+
+        logProcess('Setting up env', true);
+        const envFileData = Object.entries(appConfig.env || {})
+            .map(([k, v]) => `${k}=${v}`)
+            .join('\n');
+        fs.writeFileSync(path.join(targetPath, '.env'), envFileData);
+
+        if (appConfig.buildScript) {
+            const normalizedScript = appConfig.buildScript.split('\n')
+                .map(s => s.trim())
+                .filter(Boolean)
+                .join(' && ');
+
+            lastStep = 'building';
+            await setPipelineState('building');
+            logProcess('Executing Build Script', true);
+            await new Promise((resolve, reject) => {
+                const child = exec(normalizedScript, { cwd: targetPath, maxBuffer: 10 * 1024 * 1024 });
+                child.stdout.on('data', data => { io.emit(`deploy-log-${appId}`, data.toString()); fs.appendFileSync(logFilePath, data); });
+                child.stderr.on('data', data => { io.emit(`deploy-log-${appId}`, data.toString()); fs.appendFileSync(logFilePath, data); });
+                child.on('close', code => {
+                    if (code !== 0) reject(new Error(`Build script exited with code ${code}`));
+                    else { logProcess('Build Script Completed', true); resolve(); }
+                });
+                child.on('error', err => { reject(err); });
+            });
+        }
+
+        lastStep = 'starting';
+        await setPipelineState('starting');
+        logProcess('Starting PM2', true);
         await pm2Service.connectPM2();
 
-        // Convert args string to array for PM2, or fallback to ['start']
         let pmArgs = ['start'];
-        if (appConfig.pm2Args) {
-            // Split by space, e.g. "run dev" -> ["run", "dev"]
-            pmArgs = appConfig.pm2Args.split(' ').filter(Boolean);
-        }
+        if (appConfig.pm2Args) pmArgs = appConfig.pm2Args.split(' ').filter(Boolean);
 
         let startOptions = {
             name: appConfig.name,
@@ -269,34 +377,109 @@ router.post('/deploy/:appId', async (req, res) => {
             env: appConfig.env || {}
         };
 
-        if (appConfig.ecosystemFile) {
-            startOptions = path.join(targetPath, appConfig.ecosystemFile);
-        }
+        if (appConfig.ecosystemFile) startOptions = path.join(targetPath, appConfig.ecosystemFile);
 
-        logProcess('Stopping and removing any existing process...');
+        logProcess('Updating Application in PM2', true);
+        let exists = null;
         try {
-            await pm2Service.deleteApp(appConfig.name);
+            const list = await pm2Service.listApps();
+            exists = list.find(a => a.name === appConfig.name);
+            if (exists) {
+                const updateOptions = { ...startOptions, updateEnv: true };
+                if (appConfig.zeroDowntime !== false) {
+                    logProcess('Zero-downtime Reloading with new environment', true);
+                    await pm2Service.reloadApp(appConfig.name, updateOptions);
+                } else {
+                    logProcess('Restarting (Non Zero-downtime) with new environment', true);
+                    await pm2Service.restartApp(appConfig.name, updateOptions);
+                }
+            } else {
+                logProcess('Fresh Starting', true);
+                await pm2Service.startApp(startOptions);
+            }
         } catch (e) {
-            // Ignored, might not exist yet
+            const errorMsg = e.message || util.inspect(e);
+            logProcess(`Action failed: ${errorMsg}. Falling back to clean start...`, true);
+            try { await pm2Service.deleteApp(appConfig.name); } catch (delErr) { }
+            await pm2Service.startApp(startOptions);
         }
-
-        await pm2Service.startApp(startOptions);
 
         appConfig.status = 'running';
-        await db.write();
-        logProcess('Deployment completed successfully!');
-        await notificationService.notifyAll(appConfig.name, 'success');
-        res.json({ success: true });
+        await setPipelineState('online');
 
-    } catch (err) {
-        logProcess(`Deployment failed: ${err.message}`);
-        if (err.stack) {
-            logProcess(`Details: ${err.stack}`);
-        }
-        console.error(`[Deploy Error ${appConfig.name}]`, err);
-        appConfig.status = 'failed';
+        // Stabilization checks
+        const stabilizationTime = 10000; // 10 seconds
+
+        // Capture initial restarts AFTER the reload/restart, so we have a clean baseline
+        const freshList = await pm2Service.listApps();
+        const freshApp = freshList.find(a => a.name === appConfig.name);
+        const initialRestarts = freshApp ? (freshApp.pm2_env ? freshApp.pm2_env.restart_time : 0) : 0;
+
+        logProcess(`Stabilization started. Verifying health for ${stabilizationTime / 1000}s...`, true);
+
+        // Finalize success after X seconds
+        setTimeout(async () => {
+            try {
+                // Re-find in case db memory changed or reloaded
+                const currentApp = db.data.apps.find(a => a.id === appId);
+                if (!currentApp) return;
+
+                await pm2Service.connectPM2();
+                const list = await pm2Service.listApps();
+                const pmApp = list.find(a => a.name === currentApp.name);
+
+                if (pmApp) {
+                    const status = pmApp.pm2_env.status;
+                    const restarts = pmApp.pm2_env.restart_time;
+
+                    if (status === 'online' && restarts === initialRestarts) {
+                        // Success! Update markers
+                        currentApp.lastSuccessfulCommitHash = currentApp.commitHash;
+                        currentApp.lastSuccessfulCommitMessage = currentApp.commitMessage;
+                        currentApp.lastSuccessfulPm2Script = currentApp.pm2Script;
+                        currentApp.lastSuccessfulEnv = JSON.parse(JSON.stringify(currentApp.env || {}));
+                        currentApp.rollbackOccurred = false;
+                        currentApp.failedCommitHash = null;
+                        currentApp.failedCommitMessage = null;
+                        await db.write();
+                        logProcess('Stabilization complete. Commit marked as successful.', true);
+                    } else {
+                        logProcess(`App unhealthy after ${stabilizationTime / 1000}s (Status: ${status}, Restarts: ${restarts} vs ${initialRestarts}). Rolling back...`, true);
+                        await rollback(appId, currentApp, io, targetPath, 'online', logProcess, setPipelineState, logFilePath);
+                    }
+                }
+            } catch (err) {
+                console.error(`Health check failed for ${appConfig.name}:`, err);
+            }
+        }, stabilizationTime);
+
+        logProcess('Deployment Online (Health period active)', true);
         await db.write();
-        await notificationService.notifyAll(appConfig.name, 'failed', err.message);
+        await notificationService.notifyAll(appConfig.name, 'success');
+    } catch (err) {
+        const errorMsg = err.message || util.inspect(err);
+        logProcess(`Deployment failed: ${errorMsg}`, true);
+
+        // Auto-Rollback Logic
+        if (lastStep === 'building' || lastStep === 'starting') {
+            const rolledBack = await rollback(appId, appConfig, io, targetPath, lastStep, logProcess, setPipelineState, logFilePath);
+            if (rolledBack) return;
+        }
+
+        appConfig.status = 'failed';
+        await setPipelineState(`failed:${lastStep}`);
+        await db.write();
+        await notificationService.notifyAll(appConfig.name, 'failed', errorMsg);
+        throw err;
+    }
+};
+
+// Build and Deploy an App
+router.post('/deploy/:appId', async (req, res) => {
+    try {
+        await performDeployment(req.params.appId, req.io);
+        res.json({ success: true });
+    } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
@@ -322,7 +505,7 @@ router.get('/deploy/:appId/logs', async (req, res) => {
             const outPath = pmApp.pm2_env.pm_out_log_path;
             const errPath = pmApp.pm2_env.pm_err_log_path;
 
-            const readTailLines = (filePath, prefix = '', maxLines = 15) => {
+            const readTailLines = (filePath, prefix = '', maxLines = 100) => {
                 if (!filePath || !fs.existsSync(filePath)) return '';
                 const stats = fs.statSync(filePath);
                 const size = stats.size;
@@ -338,13 +521,13 @@ router.get('/deploy/:appId/logs', async (req, res) => {
                 return lines.slice(-maxLines).map(line => `${prefix} | ${line}`).join('\n');
             };
 
-            const outLogs = readTailLines(outPath, `[out]`, 15);
-            const errLogs = readTailLines(errPath, `[err]`, 15);
+            const outLogs = readTailLines(outPath, `[out]`);
+            const errLogs = readTailLines(errPath, `[err]`);
 
             if (outLogs || errLogs) {
                 logs += '\n\n--- 🔵 PM2 Execution Logs ---\n';
-                if (outLogs) logs += outLogs + '\n';
                 if (errLogs) logs += errLogs + '\n';
+                if (outLogs) logs += outLogs + '\n';
             }
         }
     } catch (err) {
@@ -355,51 +538,98 @@ router.get('/deploy/:appId/logs', async (req, res) => {
 });
 
 // GitHub Webhook Receiver
-router.post('/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-    // express.raw is needed to get raw body if we parse JSON earlier.
-    // Actually we already have express.json() in app.js. To do crypto verification,
-    // we might need raw body if signatures are strictly enforced. We'll simplify here.
+router.post('/webhook', async (req, res) => {
     const payload = req.body;
     const signature = req.headers['x-hub-signature-256'];
+    const deliveryId = req.headers['x-github-delivery'];
+    const eventType = req.headers['x-github-event'] || 'unknown';
     const { webhookSecret } = db.data.settings;
 
-    // Very simplistic check (ideal implementation uses raw-body for strict match)
-    if (webhookSecret && signature) {
-        const hmac = crypto.createHmac('sha256', webhookSecret);
-        const digest = Buffer.from('sha256=' + hmac.update(JSON.stringify(payload)).digest('hex'), 'utf8');
-        const checksum = Buffer.from(signature, 'utf8');
-        if (checksum.length !== digest.length || !crypto.timingSafeEqual(digest, checksum)) {
-            return res.status(401).send('Signature mismatch');
+    const logEntry = {
+        id: crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(),
+        timestamp: new Date().toISOString(),
+        eventType,
+        deliveryId,
+        repository: payload.repository?.full_name || 'unknown',
+        status: 'pending',
+        details: ''
+    };
+
+    const addLog = async (entry) => {
+        if (!db.data.webhookLogs) db.data.webhookLogs = [];
+        db.data.webhookLogs.unshift(entry);
+        if (db.data.webhookLogs.length > 50) {
+            db.data.webhookLogs = db.data.webhookLogs.slice(0, 50);
+        }
+        await db.write();
+        if (req.io) {
+            req.io.emit('webhook-log', entry);
+        }
+    };
+
+    // Signature verification using captured raw body
+    if (webhookSecret && signature && req.rawBody) {
+        try {
+            const hmac = crypto.createHmac('sha256', webhookSecret);
+            const digest = 'sha256=' + hmac.update(req.rawBody).digest('hex');
+            if (signature !== digest) {
+                logEntry.status = 'error';
+                logEntry.details = 'Signature mismatch';
+                await addLog(logEntry);
+                return res.status(401).send('Signature mismatch');
+            }
+        } catch (e) {
+            console.error('Webhook verification error:', e);
+            logEntry.status = 'error';
+            logEntry.details = `Verification failed: ${e.message}`;
+            await addLog(logEntry);
+            return res.status(500).send('Internal Error during verification');
         }
     }
 
-    // Check if push event
-    if (req.headers['x-github-event'] === 'push') {
-        const repoUrl = payload.repository?.clone_url;
+    if (eventType === 'push') {
+        const repoUrl = normalizeRepoUrl(payload.repository?.clone_url);
         const branch = payload.ref?.replace('refs/heads/', '');
 
-        // Find matching apps
         const appsToDeploy = db.data.apps.filter(a =>
-            a.repoUrl === repoUrl && a.branch === branch
+            normalizeRepoUrl(a.repoUrl) === repoUrl &&
+            a.branch === branch &&
+            a.autoSync === true
         );
+
+        if (appsToDeploy.length === 0) {
+            logEntry.status = 'ignored';
+            logEntry.details = `No matching apps for repo: ${repoUrl}, branch: ${branch}`;
+            await addLog(logEntry);
+            return res.status(200).send('No matching apps');
+        }
+
+        logEntry.status = 'success';
+        logEntry.details = `Triggered deployment for ${appsToDeploy.length} apps: ${appsToDeploy.map(a => a.name).join(', ')}`;
+        await addLog(logEntry);
 
         res.status(202).send('Accepted');
 
-        // Trigger deployments asynchronously (so GitHub gets fast response)
         for (const app of appsToDeploy) {
             try {
-                await notificationService.notifyAll(app.name, 'Push event received, triggering deployment...');
-                // We can simulate the deploy logic since we are in router
-                fetch(`http://localhost:${process.env.PORT || 3001}/api/deploy/${app.id}`, {
-                    method: 'POST',
-                    // Usually we'd use local function call, but fetch triggers the same route logic
-                    // omitting auth header or adding an internal secret
-                }).catch(err => console.error('Webhook deploy trigger failed:', err));
+                await notificationService.notifyAll(app.name, 'Push event received, triggering auto-sync...');
+                // Trigger deployment directly
+                performDeployment(app.id, req.io).catch(err => {
+                    console.error(`Auto-Sync failed for ${app.name}:`, err);
+                });
             } catch (e) {
                 console.error(e);
             }
         }
+    } else if (eventType === 'ping') {
+        logEntry.status = 'success';
+        logEntry.details = 'Webhook ping received and verified';
+        await addLog(logEntry);
+        res.status(200).send('PONG');
     } else {
+        logEntry.status = 'ignored';
+        logEntry.details = `Event type ${eventType} not processed`;
+        await addLog(logEntry);
         res.status(200).send('Event not processed');
     }
 });
@@ -413,6 +643,10 @@ router.post('/settings', async (req, res) => {
     db.data.settings = { ...db.data.settings, ...req.body };
     await db.write();
     res.json({ success: true });
+});
+
+router.get('/settings/webhook-logs', (req, res) => {
+    res.json(db.data.webhookLogs || []);
 });
 
 export default router;

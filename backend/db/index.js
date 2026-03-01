@@ -14,6 +14,7 @@ const defaultData = {
         telegramChatId: '',
     },
     githubAccounts: [],
+    webhookLogs: [],
     admin: {
         passwordHash: '', // Store hashed password
     }

@@ -10,6 +10,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import pm2 from 'pm2';
 import db from './db/index.js';
+import { getSystemStats } from './services/systemService.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -22,7 +23,11 @@ const io = new Server(server, {
 });
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({
+    verify: (req, res, buf) => {
+        req.rawBody = buf;
+    }
+}));
 app.use(morgan('dev'));
 
 // Provide io instance to routes
@@ -71,6 +76,8 @@ server.listen(PORT, () => {
                 return;
             }
 
+            console.log('PM2 Event Bus launched successfully');
+
             const broadcastLog = (type, packet) => {
                 const appName = packet.process.name;
                 const appConfig = db.data.apps.find(a => a.name === appName);
@@ -86,4 +93,17 @@ server.listen(PORT, () => {
             pm2_bus.on('log:err', (packet) => broadcastLog('err', packet));
         });
     });
+
+    // Broadcast system stats every 1 second
+    const broadcastStats = async () => {
+        try {
+            const stats = await getSystemStats();
+            io.emit('system-stats', stats);
+        } catch (e) {
+            console.error('Failed to broadcast system stats:', e);
+        } finally {
+            setTimeout(broadcastStats, 1000); // Wait 1 second after completion
+        }
+    };
+    broadcastStats();
 });

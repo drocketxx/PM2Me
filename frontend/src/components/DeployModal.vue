@@ -87,6 +87,53 @@
                 placeholder="npm install&#10;npm run build"></textarea>
             </div>
 
+            <div class="md:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div
+                class="flex items-center justify-between p-4 bg-slate-900/50 rounded-xl border border-slate-700/50 group hover:border-blue-500/30 transition-colors">
+                <div class="flex items-center space-x-3">
+                  <div class="p-2 bg-blue-500/10 rounded-lg text-blue-400 group-hover:bg-blue-500/20 transition-colors">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                  </div>
+                  <div>
+                    <span class="block text-sm font-semibold text-white">Auto Sync</span>
+                    <span class="block text-[10px] text-slate-500">Auto pull & deploy on push</span>
+                  </div>
+                </div>
+                <label class="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" v-model="form.autoSync" class="sr-only peer">
+                  <div
+                    class="w-11 h-6 bg-slate-700 rounded-full peer peer-focus:ring-2 peer-focus:ring-blue-500/50 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600">
+                  </div>
+                </label>
+              </div>
+
+              <div
+                class="flex items-center justify-between p-4 bg-slate-900/50 rounded-xl border border-slate-700/50 group hover:border-emerald-500/30 transition-colors">
+                <div class="flex items-center space-x-3">
+                  <div
+                    class="p-2 bg-emerald-500/10 rounded-lg text-emerald-400 group-hover:bg-emerald-500/20 transition-colors">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <span class="block text-sm font-semibold text-white">Zero Downtime</span>
+                    <span class="block text-[10px] text-slate-500">Use PM2 reload</span>
+                  </div>
+                </div>
+                <label class="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox" v-model="form.zeroDowntime" class="sr-only peer">
+                  <div
+                    class="w-11 h-6 bg-slate-700 rounded-full peer peer-focus:ring-2 peer-focus:ring-emerald-500/50 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500">
+                  </div>
+                </label>
+              </div>
+            </div>
+
             <div class="md:col-span-2">
               <label class="block text-sm font-medium text-slate-300 mb-2">PM2 Execution Mode</label>
               <div class="flex items-center space-x-6 mb-4">
@@ -231,7 +278,9 @@ const form = ref({
   branch: 'main',
   buildScript: '',
   npmScript: 'start',
-  customScript: 'app.js'
+  customScript: 'app.js',
+  autoSync: false,
+  zeroDowntime: true
 })
 const selectedRepo = ref('')
 const repositoriesGrouped = ref([])
@@ -260,6 +309,8 @@ watch(() => props.isOpen, async (newVal) => {
       form.value.name = props.appToEdit.name;
       form.value.branch = props.appToEdit.branch;
       form.value.buildScript = props.appToEdit.buildScript || '';
+      form.value.autoSync = !!props.appToEdit.autoSync;
+      form.value.zeroDowntime = props.appToEdit.zeroDowntime !== false; // Default to true
 
       if (props.appToEdit.ecosystemFile) {
         runType.value = 'ecosystem';
@@ -289,7 +340,7 @@ watch(() => props.isOpen, async (newVal) => {
       }
     } else {
       userEditedName.value = false
-      form.value = { name: '', branch: 'main', buildScript: '', npmScript: 'start', customScript: 'app.js' };
+      form.value = { name: '', branch: 'main', buildScript: '', npmScript: 'start', customScript: 'app.js', autoSync: false, zeroDowntime: true };
       selectedRepo.value = '';
       runType.value = 'npm';
       envVars.value = [];
@@ -313,7 +364,7 @@ watch(selectedRepo, (newRepo) => {
 const fetchRepositories = async () => {
   isFetchingRepos.value = true
   try {
-    const res = await fetch('http://localhost:12345/api/git/repositories', {
+    const res = await fetch('/api/git/repositories', {
       headers: { 'Authorization': `Bearer ${localStorage.getItem('pm2me_token')}` }
     })
     repositoriesGrouped.value = await res.json()
@@ -411,7 +462,7 @@ const fetchBranches = async () => {
   isFetchingBranches.value = true
   availableBranches.value = []
   try {
-    const res = await fetch('http://localhost:12345/api/git/branches', {
+    const res = await fetch('/api/git/branches', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -458,7 +509,7 @@ const submitDeploy = async () => {
 
   isSubmitting.value = true
   try {
-    const url = props.appToEdit ? `http://localhost:12345/api/apps/${props.appToEdit.id}` : 'http://localhost:12345/api/apps';
+    const url = props.appToEdit ? `/api/apps/${props.appToEdit.id}` : '/api/apps';
     const method = props.appToEdit ? 'PUT' : 'POST';
 
     const res = await fetch(url, {
@@ -472,7 +523,7 @@ const submitDeploy = async () => {
     const data = await res.json()
 
     // trigger deploy
-    fetch(`http://localhost:12345/api/deploy/${props.appToEdit ? props.appToEdit.id : data.id}`, {
+    fetch(`/api/deploy/${props.appToEdit ? props.appToEdit.id : data.id}`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${localStorage.getItem('pm2me_token')}` }
     });
@@ -487,10 +538,8 @@ const submitDeploy = async () => {
 }
 
 const confirmDelete = () => {
-  if (confirm(`Are you sure you want to delete ${props.appToEdit.name}? This will stop the app and remove its configuration.`)) {
-    emit('delete', props.appToEdit)
-    emit('close')
-  }
+  emit('delete', props.appToEdit)
+  emit('close')
 }
 </script>
 

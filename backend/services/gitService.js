@@ -47,10 +47,10 @@ export const syncRepo = async (repoUrl, targetPath, branchName, token = null) =>
         try {
             const git = simpleGit(targetPath).env(envOptions);
             await git.remote(['set-url', 'origin', finalUrl]);
-            await git.fetch(['origin']);
-            await git.reset(['--hard']);
-            await git.clean('f', ['-d']); // Remove untracked files
-            await git.pull('origin', branchName, { '--force': null, '--no-edit': null });
+            await git.fetch('origin', branchName);
+            await git.checkout(branchName);
+            await git.reset(['--hard', 'FETCH_HEAD']);
+            await git.clean('f', ['-d']);
             const log = await git.log(['-1']);
             const commitHash = log.latest.hash;
             const commitMessage = log.latest.message;
@@ -72,4 +72,39 @@ export const getBranches = async (repoUrl, token = null) => {
     const branches = await git.listRemote(['--heads', finalUrl]);
     // Parse branch output, simplistic split
     return branches.split('\n').filter(Boolean).map(line => line.split('refs/heads/')[1]);
+};
+
+/**
+ * Get the number of commits that the local branch is behind its remote origin counterpart.
+ */
+export const getBehindCount = async (repoUrl, targetPath, branchName, token = null) => {
+    const isGitRepo = fs.existsSync(path.join(targetPath, '.git'));
+    if (!isGitRepo) return 0;
+
+    const finalUrl = getFinalUrl(repoUrl, token);
+    const git = simpleGit(targetPath).env({ ...process.env, GIT_TERMINAL_PROMPT: '0' });
+
+    try {
+        await git.remote(['set-url', 'origin', finalUrl]);
+        await git.fetch(['origin', branchName]);
+        const count = await git.raw(['rev-list', '--count', `HEAD..origin/${branchName}`]);
+        return parseInt(count.trim(), 10) || 0;
+    } catch (err) {
+        console.error(`Git behind count error for ${targetPath}:`, err.message);
+        return 0;
+    }
+};
+
+export const checkout = async (targetPath, ref) => {
+    const git = simpleGit(targetPath).env({ ...process.env, GIT_TERMINAL_PROMPT: '0' });
+    try {
+        await git.checkout(ref);
+        const log = await git.log(['-1']);
+        return {
+            hash: log.latest.hash.trim(),
+            message: log.latest.message.trim()
+        };
+    } catch (err) {
+        throw new Error(`Git Checkout Error: ${err.message}`);
+    }
 };
