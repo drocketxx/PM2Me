@@ -74,7 +74,7 @@
             <label class="block text-xs font-medium text-slate-400 mb-1.5">Directory Path</label>
             <input v-model="appsPath" type="text" :placeholder="defaultPath"
               class="w-full bg-slate-900/80 border border-slate-600 rounded-xl px-4 py-3 text-sm text-white font-mono focus:outline-none focus:border-blue-500 transition-colors" />
-            <p class="text-slate-500 text-xs mt-1.5">Directory will be created if it doesn't exist.</p>
+            <p class="text-slate-500 text-xs mt-1.5">Directory will be created if it doesn't exist. (Server OS: {{ isWindows ? 'Windows' : 'Linux' }})</p>
           </div>
 
           <!-- Preset shortcuts -->
@@ -117,9 +117,8 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import os from 'os'
 
 const router = useRouter()
 
@@ -135,18 +134,30 @@ const passwordMismatch = computed(() =>
   adminPasswordConfirm.value.length > 0 && adminPassword.value !== adminPasswordConfirm.value
 )
 
-// OS-based defaults
-const isWindows = navigator.userAgent.includes('Windows')
-const defaultPath = isWindows ? 'C:\\pm2me\\apps' : '/opt/pm2me/apps'
-const pathPresets = isWindows
-  ? ['C:\\pm2me\\apps', 'C:\\Users\\apps', 'D:\\pm2me\\apps']
-  : ['/opt/pm2me/apps', '/home/apps', '/var/pm2me/apps']
+// Server OS-based defaults (fetched from backend)
+const isWindows = ref(false)
+const defaultPath = ref('/opt/pm2me/apps')
+const pathPresets = ref(['/opt/pm2me/apps', '/home/apps', '/var/pm2me/apps'])
+
+// Fetch server OS info on mount
+onMounted(async () => {
+  try {
+    const res = await fetch('/api/setup/info')
+    const data = await res.json()
+    isWindows.value = data.isWindows
+    defaultPath.value = data.defaultPath
+    pathPresets.value = data.pathPresets
+  } catch (e) {
+    console.error('Failed to fetch server OS info:', e)
+    // Keep Linux defaults if fetch fails
+  }
+})
 
 const nextStep = () => {
   error.value = ''
   if (!adminPassword.value) { error.value = 'Password is required'; return }
   if (passwordMismatch.value) { error.value = 'Passwords do not match'; return }
-  appsPath.value = appsPath.value || defaultPath
+  appsPath.value = appsPath.value || defaultPath.value
   step.value = 2
 }
 

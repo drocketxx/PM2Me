@@ -955,6 +955,22 @@ router.get('/setup/status', async (req, res) => {
     }
 });
 
+// GET /api/setup/info — returns server OS and default paths (no auth required)
+router.get('/setup/info', (req, res) => {
+    const serverIsWindows = os.platform() === 'win32';
+    const defaultPath = serverIsWindows ? 'C:\\pm2me\\apps' : '/opt/pm2me/apps';
+    const pathPresets = serverIsWindows
+        ? ['C:\\pm2me\\apps', 'C:\\Users\\apps', 'D:\\pm2me\\apps']
+        : ['/opt/pm2me/apps', '/home/apps', '/var/pm2me/apps'];
+    
+    res.json({
+        os: serverIsWindows ? 'windows' : 'linux',
+        isWindows: serverIsWindows,
+        defaultPath,
+        pathPresets
+    });
+});
+
 // POST /api/setup/complete — no auth required
 router.post('/setup/complete', async (req, res) => {
     try {
