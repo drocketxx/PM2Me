@@ -796,18 +796,18 @@ router.post('/nginx/action', async (req, res) => {
 
     try {
         let cmd;
+        const nginxCwd = isWindows ? 'C:\\nginx' : '/';
+
         if (isWindows) {
             const bin = `"${NGINX_BIN}"`;
             const cmdMap = {
                 test: `${bin} -t -c "${NGINX_CONF}"`,
-                start: `Start-Process -FilePath "${NGINX_BIN}" -WorkingDirectory "C:\\nginx" -WindowStyle Hidden`,
+                start: `powershell -Command "Start-Process -FilePath '${NGINX_BIN}' -WorkingDirectory 'C:\\nginx' -WindowStyle Hidden"`,
                 reload: `${bin} -s reload`,
                 stop: `${bin} -s stop`,
                 quit: `${bin} -s quit`,
             };
-            cmd = action === 'start'
-                ? `powershell -Command "${cmdMap.start}"`
-                : cmdMap[action];
+            cmd = cmdMap[action];
         } else {
             const cmdMap = {
                 test: `sudo nginx -t`,
@@ -819,7 +819,7 @@ router.post('/nginx/action', async (req, res) => {
             cmd = cmdMap[action];
         }
 
-        const { stdout, stderr } = await execAsync(cmd).catch(err => ({
+        const { stdout, stderr } = await execAsync(cmd, { cwd: nginxCwd }).catch(err => ({
             stdout: err.stdout || '',
             stderr: err.stderr || err.message,
         }));
