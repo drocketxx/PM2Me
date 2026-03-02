@@ -11,6 +11,7 @@ import crypto from 'crypto';
 import { exec } from 'child_process';
 import util from 'util';
 import bcrypt from 'bcrypt';
+import os from 'os';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const getWorkspacesDir = () => db.data.settings?.appsPath || path.resolve(__dirname, '../../apps');
@@ -704,7 +705,6 @@ router.get('/settings/webhook-logs', (req, res) => {
 });
 
 // ─── Nginx Management ────────────────────────────────────────────────────────
-import os from 'os';
 
 const isWindows = os.platform() === 'win32';
 const NGINX_CONF = isWindows ? 'C:\\nginx\\conf\\nginx.conf' : '/etc/nginx/nginx.conf';
@@ -936,7 +936,8 @@ router.post('/nginx/action', async (req, res) => {
 router.get('/setup/status', async (req, res) => {
     try {
         // Always read fresh from disk — detects database.json deletion or changes without restart
-        const dbPath = path.resolve(__dirname, '../db/database.json');
+        const homeDir = path.join(os.homedir(), '.pm2me');
+        const dbPath = process.env.PM2ME_DB_PATH || path.join(homeDir, 'database.json');
         if (!fs.existsSync(dbPath)) {
             // File deleted or not created yet
             return res.json({ needsSetup: true, missing: ['adminPassword', 'appsPath', 'setupComplete'] });
@@ -989,14 +990,25 @@ router.post('/setup/complete', async (req, res) => {
         }
         // Hash with bcrypt (same as auth.js uses for verification)
         const passwordHash = await bcrypt.hash(adminPassword, 10);
+        
+        // Update db data
         db.data.admin = { passwordHash };
         db.data.settings = { ...db.data.settings, appsPath };
         db.data.setupComplete = true;
+        
+        // Force write to database
         await db.write();
+        
+        // Verify the data was written by reading it back
+        await db.read();
+        
         // Ensure apps dir exists
         fs.mkdirSync(appsPath, { recursive: true });
+        
+        console.log('Setup completed successfully. Database saved to:', db.data);
         res.json({ success: true });
     } catch (err) {
+        console.error('Setup error:', err);
         res.status(500).json({ error: err.message });
     }
 });

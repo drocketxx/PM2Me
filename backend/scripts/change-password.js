@@ -3,9 +3,11 @@ import bcrypt from 'bcrypt';
 import { JSONFilePreset } from 'lowdb/node';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import os from 'os';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dbPath = path.join(__dirname, '../db/database.json');
+const homeDir = path.join(os.homedir(), '.pm2me');
+const dbPath = process.env.PM2ME_DB_PATH || path.join(homeDir, 'database.json');
 
 const password = process.argv[2];
 if (!password) {
