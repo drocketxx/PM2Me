@@ -25,8 +25,7 @@ if (args[0] === 'service') {
     if (action === 'install') {
         console.log('[pm2me] Installing background service...');
         try {
-            // 1. Start pm2me via PM2
-            // We use the full path to the backend app.js
+            const isWindows = os.platform() === 'win32';
             const appPath = path.join(backendDir, 'app.js');
             const homeDir = path.join(os.homedir(), '.pm2me');
             const dbPath = path.join(homeDir, 'database.json');
@@ -34,20 +33,25 @@ if (args[0] === 'service') {
             console.log(`[pm2me] Starting via PM2 as 'pm2me-server'...`);
             execSync(`pm2 start "${appPath}" --name pm2me-server --env PM2ME_DB_PATH="${dbPath}"`, { stdio: 'inherit' });
 
-            // 2. Save PM2 list
             console.log(`[pm2me] Saving PM2 process list...`);
             execSync(`pm2 save`, { stdio: 'inherit' });
 
-            // 3. Optional: Startup (User needs to run this with sudo/admin usually, but we try)
-            console.log(`[pm2me] Setting up boot startup...`);
-            try {
-                execSync(`pm2 startup`, { stdio: 'inherit' });
-                console.log(`[pm2me] Done! If you see a command above, please copy and run it to finalize startup.`);
-            } catch (e) {
-                console.log(`[pm2me] 'pm2 startup' might need manual execution. Check instructions above.`);
+            if (isWindows) {
+                console.log(`\n[pm2me] 💡 Windows Info: 'pm2me-server' is now running in the background.`);
+                console.log(`[pm2me] To make it start automatically on Windows restart, we recommend using 'pm2-windows-startup':`);
+                console.log(`        npm install -g pm2-windows-startup`);
+                console.log(`        pm2-startup install`);
+            } else {
+                console.log(`[pm2me] Setting up boot startup...`);
+                try {
+                    execSync(`pm2 startup`, { stdio: 'inherit' });
+                    console.log(`[pm2me] Done! If you see a command above, please copy and run it to finalize startup.`);
+                } catch (e) {
+                    console.log(`[pm2me] 'pm2 startup' might need manual execution. Check instructions above.`);
+                }
             }
 
-            console.log(`[pm2me] Service installed successfully. Access your UI at http://localhost:12345`);
+            console.log(`\n[pm2me] Service installed successfully. Access your UI at http://localhost:12345`);
             process.exit(0);
         } catch (err) {
             console.error(`[pm2me] Failed to install service:`, err.message);
