@@ -28,9 +28,9 @@ export const syncRepo = async (repoUrl, targetPath, branchName, token = null) =>
             fs.rmSync(targetPath, { recursive: true, force: true });
         }
         fs.mkdirSync(targetPath, { recursive: true });
-        const git = simpleGit().env(envOptions);
+        const git = simpleGit({ spawnOptions: { windowsHide: true } }).env(envOptions);
         await git.clone(finalUrl, targetPath, ['--branch', branchName]);
-        const gitLocal = simpleGit(targetPath);
+        const gitLocal = simpleGit(targetPath, { spawnOptions: { windowsHide: true } });
         const log = await gitLocal.log(['-1']);
         const commitHash = log.latest.hash;
         const commitMessage = log.latest.message;
@@ -45,7 +45,7 @@ export const syncRepo = async (repoUrl, targetPath, branchName, token = null) =>
         }
     } else {
         try {
-            const git = simpleGit(targetPath).env(envOptions);
+            const git = simpleGit(targetPath, { spawnOptions: { windowsHide: true } }).env(envOptions);
             await git.remote(['set-url', 'origin', finalUrl]);
             await git.fetch('origin', branchName);
             await git.checkout(branchName);
@@ -68,7 +68,7 @@ export const syncRepo = async (repoUrl, targetPath, branchName, token = null) =>
 
 export const getBranches = async (repoUrl, token = null) => {
     const finalUrl = getFinalUrl(repoUrl, token);
-    const git = simpleGit().env({ ...process.env, GIT_TERMINAL_PROMPT: '0' });
+    const git = simpleGit({ spawnOptions: { windowsHide: true } }).env({ ...process.env, GIT_TERMINAL_PROMPT: '0' });
     const branches = await git.listRemote(['--heads', finalUrl]);
     // Parse branch output, simplistic split
     return branches.split('\n').filter(Boolean).map(line => line.split('refs/heads/')[1]);
@@ -82,7 +82,7 @@ export const getBehindCount = async (repoUrl, targetPath, branchName, token = nu
     if (!isGitRepo) return 0;
 
     const finalUrl = getFinalUrl(repoUrl, token);
-    const git = simpleGit(targetPath).env({ ...process.env, GIT_TERMINAL_PROMPT: '0' });
+    const git = simpleGit(targetPath, { spawnOptions: { windowsHide: true } }).env({ ...process.env, GIT_TERMINAL_PROMPT: '0' });
 
     try {
         await git.remote(['set-url', 'origin', finalUrl]);
@@ -96,7 +96,7 @@ export const getBehindCount = async (repoUrl, targetPath, branchName, token = nu
 };
 
 export const checkout = async (targetPath, ref) => {
-    const git = simpleGit(targetPath).env({ ...process.env, GIT_TERMINAL_PROMPT: '0' });
+    const git = simpleGit(targetPath, { spawnOptions: { windowsHide: true } }).env({ ...process.env, GIT_TERMINAL_PROMPT: '0' });
     try {
         await git.checkout(ref);
         const log = await git.log(['-1']);
