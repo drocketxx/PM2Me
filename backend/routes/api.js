@@ -786,6 +786,103 @@ router.post('/nginx/config', async (req, res) => {
     }
 });
 
+// GET list all nginx config files (conf dir + sites-available + conf.d)
+router.get('/nginx/files', async (req, res) => {
+    try {
+        const files = [];
+        if (isWindows) {
+            const confDir = 'C:\\nginx\\conf';
+            if (fs.existsSync(confDir)) {
+                for (const f of fs.readdirSync(confDir)) {
+                    if (f.endsWith('.conf')) {
+                        files.push({ name: f, path: path.join(confDir, f), dir: confDir, enabled: true, enabledPath: null });
+                    }
+                }
+            }
+        } else {
+            const enabledDir = '/etc/nginx/sites-enabled';
+            const enabledSet = new Set();
+            if (fs.existsSync(enabledDir)) {
+                for (const f of fs.readdirSync(enabledDir)) enabledSet.add(f);
+            }
+            const addFromDir = (dir) => {
+                if (!fs.existsSync(dir)) return;
+                for (const f of fs.readdirSync(dir)) {
+                    const fullPath = path.join(dir, f);
+                    try {
+                        const stat = fs.lstatSync(fullPath);
+                        if (stat.isFile()) {
+                            files.push({ name: f, path: fullPath, dir, enabled: enabledSet.has(f), enabledPath: path.join(enabledDir, f) });
+                        }
+                    } catch { }
+                }
+            };
+            if (fs.existsSync('/etc/nginx/nginx.conf')) {
+                files.push({ name: 'nginx.conf', path: '/etc/nginx/nginx.conf', dir: '/etc/nginx', enabled: true, enabledPath: null });
+            }
+            addFromDir('/etc/nginx/sites-available');
+            addFromDir('/etc/nginx/conf.d');
+        }
+        res.json({ files, isWindows });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST enable a site (create symlink sites-available → sites-enabled)
+router.post('/nginx/enable', async (req, res) => {
+    if (isWindows) return res.json({ success: true, message: 'N/A on Windows' });
+    try {
+        const { filePath, name } = req.body;
+        const enabledPath = `/etc/nginx/sites-enabled/${name}`;
+        if (!fs.existsSync(enabledPath)) await execAsync(`sudo ln -s "${filePath}" "${enabledPath}"`);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST disable a site (remove symlink from sites-enabled)
+router.post('/nginx/disable', async (req, res) => {
+    if (isWindows) return res.json({ success: true, message: 'N/A on Windows' });
+    try {
+        const { name } = req.body;
+        const enabledPath = `/etc/nginx/sites-enabled/${name}`;
+        if (fs.existsSync(enabledPath)) await execAsync(`sudo rm "${enabledPath}"`);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST create new nginx config file
+router.post('/nginx/files/new', async (req, res) => {
+    try {
+        const { name } = req.body;
+        const dir = isWindows ? 'C:\\nginx\\conf' : '/etc/nginx/sites-available';
+        const fname = name.endsWith('.conf') ? name : name + '.conf';
+        const filePath = path.join(dir, fname);
+        if (fs.existsSync(filePath)) return res.status(409).json({ error: 'File already exists' });
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(filePath, `# ${fname}\n\nserver {\n    listen 80;\n    server_name example.com;\n\n    location / {\n        root /var/www/html;\n        index index.html;\n    }\n}\n`, 'utf8');
+        res.json({ success: true, path: filePath, name: fname });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// DELETE nginx config file
+router.delete('/nginx/files', async (req, res) => {
+    try {
+        const { filePath } = req.body;
+        if (!filePath) return res.status(400).json({ error: 'filePath required' });
+        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // POST nginx action: test | start | reload | stop | quit
 router.post('/nginx/action', async (req, res) => {
     const { action } = req.body;
