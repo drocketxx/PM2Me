@@ -4,67 +4,91 @@
     <ServerStats />
 
     <!-- PM2 Status Widget -->
-    <div class="rounded-2xl border flex items-center justify-between px-6 py-4 shadow-xl backdrop-blur-sm transition-all"
+    <div
+      class="rounded-2xl border flex items-center justify-between px-6 py-4 shadow-xl backdrop-blur-sm transition-all"
       :class="!pm2Status.loaded || pm2Status.isChecking
         ? 'bg-slate-800/60 border-slate-700'
-        : !pm2Status.installed 
-          ? 'bg-red-500/5 border-red-500/30' 
-          : pm2Status.hasUpdate 
-            ? 'bg-amber-500/5 border-amber-500/30' 
+        : !pm2Status.installed
+          ? 'bg-red-500/5 border-red-500/30'
+          : pm2Status.hasUpdate
+            ? 'bg-amber-500/5 border-amber-500/30'
             : 'bg-emerald-500/5 border-emerald-500/20'">
       <div class="flex items-center space-x-4">
         <!-- Icon -->
         <div class="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
           :class="!pm2Status.loaded || pm2Status.isChecking ? 'bg-slate-700' : !pm2Status.installed ? 'bg-red-500/20' : pm2Status.hasUpdate ? 'bg-amber-500/20' : 'bg-emerald-500/20'">
           <!-- Spinner while checking -->
-          <svg v-if="!pm2Status.loaded || pm2Status.isChecking" class="animate-spin w-5 h-5 text-slate-400" fill="none" viewBox="0 0 24 24">
+          <svg v-if="!pm2Status.loaded || pm2Status.isChecking" class="animate-spin w-5 h-5 text-slate-400" fill="none"
+            viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
           </svg>
-          <svg v-else-if="!pm2Status.installed" class="w-5 h-5 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01M5.07 19H19a2 2 0 001.75-2.96L13.75 4a2 2 0 00-3.5 0L3.25 16.04A2 2 0 005.07 19z"/>
+          <svg v-else-if="!pm2Status.installed" class="w-5 h-5 text-red-400" fill="none" viewBox="0 0 24 24"
+            stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M12 9v2m0 4h.01M5.07 19H19a2 2 0 001.75-2.96L13.75 4a2 2 0 00-3.5 0L3.25 16.04A2 2 0 005.07 19z" />
           </svg>
-          <svg v-else-if="pm2Status.hasUpdate" class="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          <svg v-else-if="pm2Status.hasUpdate" class="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24"
+            stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
           </svg>
           <svg v-else class="w-5 h-5 text-emerald-400" fill="currentColor" viewBox="0 0 20 20">
-            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+            <path fill-rule="evenodd"
+              d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+              clip-rule="evenodd" />
           </svg>
         </div>
         <!-- Text -->
         <div>
-          <p v-if="!pm2Status.loaded || pm2Status.isChecking" class="text-sm font-semibold text-slate-400">Checking PM2 status...</p>
+          <p v-if="!pm2Status.loaded || pm2Status.isChecking" class="text-sm font-semibold text-slate-400">Checking PM2
+            status...</p>
           <p v-else-if="!pm2Status.installed" class="text-sm font-semibold text-red-400">PM2 is not installed</p>
           <p v-else-if="pm2Status.hasUpdate" class="text-sm font-semibold text-amber-400">PM2 update available</p>
           <p v-else class="text-sm font-semibold text-emerald-400">PM2 is up to date</p>
-          <p v-if="pm2Status.loaded && !pm2Status.isChecking && pm2Status.installed" class="text-xs text-slate-500 mt-0.5">
+          <p v-if="pm2Status.loaded && !pm2Status.isChecking && pm2Status.installed"
+            class="text-xs text-slate-500 mt-0.5">
             Installed: <span class="text-slate-300 font-mono">v{{ pm2Status.version }}</span>
-            <span v-if="pm2Status.hasUpdate"> → Latest: <span class="text-amber-300 font-mono">v{{ pm2Status.latestVersion }}</span></span>
+            <span v-if="pm2Status.hasUpdate"> → Latest: <span class="text-amber-300 font-mono">v{{
+              pm2Status.latestVersion }}</span></span>
           </p>
-          <p v-else-if="pm2Status.loaded && !pm2Status.isChecking && !pm2Status.installed" class="text-xs text-slate-500 mt-0.5">PM2 is required to run and manage applications</p>
+          <p v-else-if="pm2Status.loaded && !pm2Status.isChecking && !pm2Status.installed"
+            class="text-xs text-slate-500 mt-0.5">PM2 is required to run and manage applications</p>
         </div>
       </div>
       <!-- Actions -->
       <div class="flex items-center space-x-2 flex-shrink-0">
         <button v-if="pm2Status.loaded && !pm2Status.isChecking && pm2Status.isActing" disabled
           class="flex items-center px-4 py-2 rounded-xl text-sm font-medium bg-slate-700 text-slate-400 cursor-wait">
-          <svg class="animate-spin w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path></svg>
+          <svg class="animate-spin w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+          </svg>
           {{ pm2Status.installed ? 'Updating...' : 'Installing...' }}
         </button>
-        <button v-else-if="pm2Status.loaded && !pm2Status.isChecking && !pm2Status.installed" @click="pm2InstallOrUpdate"
+        <button v-else-if="pm2Status.loaded && !pm2Status.isChecking && !pm2Status.installed"
+          @click="pm2InstallOrUpdate"
           class="flex items-center px-4 py-2 rounded-xl text-sm font-medium bg-blue-600 hover:bg-blue-500 text-white transition-all shadow-lg shadow-blue-500/20">
-          <svg class="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+          <svg class="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
           Install PM2
         </button>
         <button v-else-if="pm2Status.loaded && !pm2Status.isChecking && pm2Status.hasUpdate" @click="pm2InstallOrUpdate"
           class="flex items-center px-4 py-2 rounded-xl text-sm font-medium bg-amber-500 hover:bg-amber-400 text-white transition-all shadow-lg shadow-amber-500/20">
-          <svg class="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          <svg class="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
           Update PM2
         </button>
         <button @click="fetchPm2Status" :disabled="pm2Status.isChecking"
           class="p-2 text-slate-400 hover:text-white transition-colors" title="Refresh">
-          <svg class="w-4 h-4" :class="{ 'animate-spin': pm2Status.isChecking }" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+          <svg class="w-4 h-4" :class="{ 'animate-spin': pm2Status.isChecking }" fill="none" viewBox="0 0 24 24"
+            stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
           </svg>
         </button>
       </div>
@@ -88,20 +112,21 @@
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
       <div v-for="app in pm2Apps" :key="app.pm_id"
         class="bg-slate-800/80 backdrop-blur-sm rounded-2xl shadow-xl border border-slate-700 p-6 flex flex-col transition-all hover:border-slate-600 hover:shadow-2xl">
-        <div class="flex items-center justify-between mb-4">
-          <div class="flex items-center space-x-3">
-            <div class="w-10 h-10 rounded-xl bg-slate-700/50 flex items-center justify-center border border-slate-600">
+        <div class="flex items-start justify-between mb-4 gap-3">
+          <div class="flex items-start space-x-3 min-w-0 flex-1">
+            <div
+              class="w-10 h-10 rounded-xl bg-slate-700/50 flex items-center justify-center border border-slate-600 flex-shrink-0 mt-0.5">
               <svg class="h-6 w-6 text-slate-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                   d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
               </svg>
             </div>
-            <div>
-              <div class="flex items-center gap-2">
-                <h2 class="text-lg font-bold text-white">{{ app.name }}</h2>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2 flex-wrap">
+                <h2 class="text-lg font-bold text-white truncate" :title="app.name">{{ app.name }}</h2>
               </div>
-              <div class="flex items-center space-x-2 text-xs font-medium mt-1">
-                <span class="relative flex h-2 w-2">
+              <div class="flex items-center space-x-2 text-xs font-medium mt-1.5">
+                <span class="relative flex h-2 w-2 flex-shrink-0">
                   <span v-if="app.pm2_env.status === 'online'"
                     class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                   <span class="relative inline-flex rounded-full h-2 w-2"
@@ -114,11 +139,11 @@
               </div>
             </div>
           </div>
-          <div class="flex items-center space-x-2">
-            <button @click="openEditModal(app, true)"
+          <div class="flex items-center space-x-1.5 flex-shrink-0">
+            <button v-if="app.id" @click="openEditModal(app, true)"
               class="p-2 text-slate-400 hover:text-blue-400 bg-slate-700/50 hover:bg-slate-700 rounded-lg transition-colors border border-slate-600 focus:outline-none"
               title="Edit Config">
-              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                   d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
               </svg>
@@ -126,7 +151,7 @@
             <button @click="openLogs(app)"
               class="p-2 text-slate-400 hover:text-white bg-slate-700/50 hover:bg-slate-700 rounded-lg transition-colors border border-slate-600 focus:outline-none"
               title="View Logs">
-              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                   d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
@@ -134,8 +159,9 @@
             <button @click="confirmDeleteApp(app)"
               class="p-2 text-slate-400 hover:text-red-400 bg-slate-700/50 hover:bg-red-500/10 rounded-lg transition-colors border border-slate-600 focus:outline-none"
               title="Delete Application">
-              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
             </button>
           </div>
@@ -341,7 +367,7 @@
             {{ loadingActions[`${app.name}-restart`] ? '...' : 'Restart' }}
           </button>
 
-          <button @click="retryDeployForPm2App(app)" :disabled="loadingActions[`${app.name}-deploy`]"
+          <button v-if="app.id" @click="retryDeployForPm2App(app)" :disabled="loadingActions[`${app.name}-deploy`]"
             class="flex items-center justify-center p-2 text-sm font-medium text-purple-400 bg-purple-400/10 hover:bg-purple-400/20 rounded-lg transition-colors border border-purple-400/20 text-nowrap">
             <svg v-if="loadingActions[`${app.name}-deploy`]" class="animate-spin h-4 w-4 mr-1.5" viewBox="0 0 24 24">
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" fill="none">
@@ -368,9 +394,10 @@
         <div v-if="dbApp.status === 'deploying'"
           class="absolute inset-0 bg-blue-500/5 animate-pulse rounded-2xl blur-xl -z-10"></div>
 
-        <div class="flex items-center justify-between mb-4">
-          <div class="flex items-center space-x-3">
-            <div class="w-10 h-10 rounded-xl bg-slate-700/50 flex items-center justify-center border border-slate-600"
+        <div class="flex items-start justify-between mb-4 gap-3">
+          <div class="flex items-start space-x-3 min-w-0 flex-1">
+            <div
+              class="w-10 h-10 rounded-xl bg-slate-700/50 flex items-center justify-center border border-slate-600 flex-shrink-0 mt-0.5"
               :class="dbApp.status === 'deploying' ? 'text-blue-500' : 'text-red-500'">
               <svg v-if="dbApp.status === 'deploying'" class="animate-spin h-6 w-6" xmlns="http://www.w3.org/2000/svg"
                 fill="none" viewBox="0 0 24 24">
@@ -384,16 +411,17 @@
                   d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
-            <div>
-              <h2 class="text-lg font-bold text-white">{{ dbApp.name }}</h2>
-              <div class="flex items-center space-x-2 text-xs font-medium mt-1">
-                <span class="capitalize" :class="dbApp.status === 'deploying' ? 'text-blue-400' : 'text-red-400'">
+            <div class="min-w-0 flex-1">
+              <h2 class="text-lg font-bold text-white truncate" :title="dbApp.name">{{ dbApp.name }}</h2>
+              <div class="flex items-center space-x-2 text-xs font-medium mt-1.5 flex-wrap">
+                <span class="capitalize flex-shrink-0"
+                  :class="dbApp.status === 'deploying' ? 'text-blue-400' : 'text-red-400'">
                   {{ dbApp.status }}
                 </span>
                 <span v-if="dbApp.commitMessage"
-                  class="ml-2 text-[10px] bg-slate-700/50 border border-slate-600 px-1.5 py-0.5 rounded text-slate-300 font-mono inline-block max-w-[150px] truncate align-bottom"
+                  class="text-[10px] bg-slate-700/50 border border-slate-600 px-1.5 py-0.5 rounded text-slate-300 font-mono inline-block max-w-full truncate align-bottom mt-1 sm:mt-0"
                   title="Deployed Commit">
-                  <svg class="w-3 h-3 inline pb-[1px] mr-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <svg class="w-3 h-3 inline pb-[1px] mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <circle cx="12" cy="12" r="3" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
                     </circle>
                     <line x1="3" y1="12" x2="9" y2="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
@@ -406,11 +434,11 @@
               </div>
             </div>
           </div>
-          <div class="flex items-center space-x-2">
+          <div class="flex items-center space-x-1.5 flex-shrink-0">
             <button @click="openEditModal(dbApp, false)"
               class="p-2 text-slate-400 hover:text-blue-400 bg-slate-700/50 hover:bg-slate-700 rounded-lg transition-colors border border-slate-600 focus:outline-none"
               title="Edit Config">
-              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                   d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
               </svg>
@@ -418,7 +446,7 @@
             <button @click="openDbAppLogs(dbApp)"
               class="p-2 text-slate-400 hover:text-white bg-slate-700/50 hover:bg-slate-700 rounded-lg transition-colors border border-slate-600 focus:outline-none"
               title="View Logs">
-              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                   d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
@@ -559,24 +587,28 @@
       @close="showLogViewer = false" />
 
     <!-- Custom Delete Confirmation Modal -->
-    <div v-if="showDeleteConfirm" class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-md">
-      <div class="bg-slate-800 border border-slate-700 rounded-3xl shadow-2xl max-w-md w-full p-8 text-center transform transition-all scale-100">
-        <div class="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-6 border border-red-500/20">
+    <div v-if="showDeleteConfirm"
+      class="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-md">
+      <div
+        class="bg-slate-800 border border-slate-700 rounded-3xl shadow-2xl max-w-md w-full p-8 text-center transform transition-all scale-100">
+        <div
+          class="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-6 border border-red-500/20">
           <svg class="w-10 h-10 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
           </svg>
         </div>
         <h3 class="text-2xl font-bold text-white mb-2">Delete Application?</h3>
         <p class="text-slate-400 mb-8 leading-relaxed">
-          Are you sure you want to delete <span class="text-white font-semibold">{{ appPendingDeletion?.name }}</span>? 
+          Are you sure you want to delete <span class="text-white font-semibold">{{ appPendingDeletion?.name }}</span>?
           This will stop the PM2 process and permanently remove the configuration.
         </p>
         <div class="flex flex-col sm:flex-row gap-3">
-          <button @click="showDeleteConfirm = false; appPendingDeletion = null" 
+          <button @click="showDeleteConfirm = false; appPendingDeletion = null"
             class="flex-1 px-6 py-3 bg-slate-700 hover:bg-slate-600 text-white font-medium rounded-xl transition-all border border-slate-600">
             Keep Application
           </button>
-          <button @click="executeAppDelete" 
+          <button @click="executeAppDelete"
             class="flex-1 px-6 py-3 bg-red-600 hover:bg-red-500 text-white font-bold rounded-xl transition-all shadow-lg shadow-red-600/20">
             Yes, Delete it
           </button>

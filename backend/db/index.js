@@ -3,7 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dbPath = path.join(__dirname, 'database.json');
+const dbPath = process.env.PM2ME_DB_PATH || path.join(__dirname, 'database.json');
 
 const defaultData = {
     apps: [],
@@ -12,12 +12,14 @@ const defaultData = {
         discordWebhook: '',
         telegramBotToken: '',
         telegramChatId: '',
+        appsPath: '',          // Set during Setup Wizard
     },
     githubAccounts: [],
     webhookLogs: [],
     admin: {
-        passwordHash: '', // Store hashed password
-    }
+        passwordHash: '',
+    },
+    setupComplete: false,    // true after Setup Wizard finishes
 };
 
 // Initialize DB with node preset
