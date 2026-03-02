@@ -10,32 +10,42 @@ PM2Me lets you **deploy apps directly from a GitHub repository**, manage PM2 pro
 
 ---
 
-## 🚀 Quick Start (Global Install)
+## 🚀 Recommended Installation
 
-The easiest way to use PM2Me is to install it globally via npm:
+The standard way to use PM2Me is to install it globally via npm:
 
 ```bash
-# 1. Install globally
+# Install globally
 npm install -g @drocketxx/pm2me
-
-# 2. Run the server
-pm2me
 ```
-
-Open your browser at: **http://localhost:12345**
 
 ---
 
-## 🛠️ Running as a Background Service
+## 📋 Commands
 
-If you want PM2Me to run in the background and start automatically on system boot, use the built-in `service` command:
+### Standard Execution
+```bash
+# Run the server in foreground
+pm2me
+
+# Run on a custom port
+pm2me --port 8080
+```
+
+### Background Service (Recommended)
+Manage PM2Me as a system service using these commands:
 
 ```bash
-# Install as a background service (using PM2)
+# Install & start as a background service (using PM2)
 pm2me service install
 
-# To remove the background service
+# Uninstall/Remove the service
 pm2me service uninstall
+
+# Control the service
+pm2me service start
+pm2me service stop
+pm2me service restart
 ```
 
 > **Note:** The `service install` command will register PM2Me as `pm2me-server` in PM2 and attempt to set up system startup.
