@@ -963,11 +963,20 @@ router.get('/setup/info', (req, res) => {
         ? ['C:\\pm2me\\apps', 'C:\\Users\\apps', 'D:\\pm2me\\apps']
         : ['/opt/pm2me/apps', '/home/apps', '/var/pm2me/apps'];
     
+    // Read version from package.json
+    let version = 'unknown';
+    try {
+        const pkgPath = path.resolve(__dirname, '../../package.json');
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+        version = pkg.version || 'unknown';
+    } catch { }
+    
     res.json({
         os: serverIsWindows ? 'windows' : 'linux',
         isWindows: serverIsWindows,
         defaultPath,
-        pathPresets
+        pathPresets,
+        version
     });
 });
 

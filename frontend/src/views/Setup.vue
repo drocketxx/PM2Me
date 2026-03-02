@@ -139,7 +139,7 @@ const isWindows = ref(false)
 const defaultPath = ref('/opt/pm2me/apps')
 const pathPresets = ref(['/opt/pm2me/apps', '/home/apps', '/var/pm2me/apps'])
 
-// Fetch server OS info on mount
+// Fetch server OS info and version on mount
 onMounted(async () => {
   try {
     const res = await fetch('/api/setup/info')
@@ -147,6 +147,9 @@ onMounted(async () => {
     isWindows.value = data.isWindows
     defaultPath.value = data.defaultPath
     pathPresets.value = data.pathPresets
+    if (data.version) {
+      version.value = data.version
+    }
   } catch (e) {
     console.error('Failed to fetch server OS info:', e)
     // Keep Linux defaults if fetch fails
