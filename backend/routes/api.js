@@ -59,7 +59,7 @@ router.get('/pm2/version-check', async (req, res) => {
         // Get latest version from npm registry
         let latestVersion = null;
         try {
-            const { stdout } = await execAsync('npm view pm2 version');
+            const { stdout } = await execAsync('npm view pm2 version', { windowsHide: true });
             latestVersion = stdout.trim();
         } catch {
             latestVersion = null;
@@ -78,7 +78,7 @@ router.get('/pm2/version-check', async (req, res) => {
 router.post('/pm2/install-update', async (req, res) => {
     try {
         res.writeHead(200, { 'Content-Type': 'text/plain', 'Transfer-Encoding': 'chunked' });
-        const child = exec('npm install -g pm2@latest');
+        const child = exec('npm install -g pm2@latest', { windowsHide: true });
         child.stdout.on('data', (d) => res.write(d));
         child.stderr.on('data', (d) => res.write(d));
         child.on('close', (code) => {
