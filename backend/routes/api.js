@@ -45,7 +45,7 @@ router.get('/pm2/version-check', async (req, res) => {
         // Check globally installed PM2 version via npm (avoids local node_modules/.bin/pm2)
         let installedVersion = null;
         try {
-            const { stdout } = await execAsync('npm list -g pm2 --depth=0 --json');
+            const { stdout } = await execAsync('npm list -g pm2 --depth=0 --json', { windowsHide: true });
             const parsed = JSON.parse(stdout);
             installedVersion = parsed?.dependencies?.pm2?.version || null;
         } catch {
@@ -404,7 +404,7 @@ export const performDeployment = async (appId, io) => {
             await setPipelineState('building');
             logProcess('Executing Build Script', true);
             await new Promise((resolve, reject) => {
-                const child = exec(normalizedScript, { cwd: targetPath, maxBuffer: 10 * 1024 * 1024 });
+                const child = exec(normalizedScript, { cwd: targetPath, maxBuffer: 10 * 1024 * 1024, windowsHide: true });
                 child.stdout.on('data', data => { io.emit(`deploy-log-${appId}`, data.toString()); fs.appendFileSync(logFilePath, data); });
                 child.stderr.on('data', data => { io.emit(`deploy-log-${appId}`, data.toString()); fs.appendFileSync(logFilePath, data); });
                 child.on('close', code => {
@@ -1023,7 +1023,7 @@ router.post('/system/update', async (req, res) => {
             cmd = 'git pull origin main && npm run build';
             cwd = path.resolve(__dirname, '../..');
         }
-        const { stdout, stderr } = await execAsync(cmd, { cwd }).catch(err => ({
+        const { stdout, stderr } = await execAsync(cmd, { cwd, windowsHide: true }).catch(err => ({
             stdout: '', stderr: err.message
         }));
         const output = [stdout, stderr].filter(Boolean).join('\n').trim();

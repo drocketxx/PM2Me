@@ -36,10 +36,10 @@ if (args[0] === 'service') {
             const dbPath = path.join(homeDir, 'database.json');
 
             console.log(`[pm2me] Starting via PM2 as '${SERVICE_NAME}'...`);
-            execSync(`pm2 start "${appPath}" --name ${SERVICE_NAME} --env PM2ME_DB_PATH="${dbPath}"`, { stdio: 'inherit' });
+            execSync(`pm2 start "${appPath}" --name ${SERVICE_NAME} --env PM2ME_DB_PATH="${dbPath}"`, { stdio: 'inherit', windowsHide: true });
 
             console.log(`[pm2me] Saving PM2 process list...`);
-            execSync(`pm2 save`, { stdio: 'inherit' });
+            execSync(`pm2 save`, { stdio: 'inherit', windowsHide: true });
 
             if (isWindows) {
                 console.log(`\n[pm2me] 💡 Windows Info: '${SERVICE_NAME}' is now running in the background.`);
@@ -49,7 +49,7 @@ if (args[0] === 'service') {
             } else {
                 console.log(`[pm2me] Setting up boot startup...`);
                 try {
-                    execSync(`pm2 startup`, { stdio: 'inherit' });
+                    execSync(`pm2 startup`, { stdio: 'inherit', windowsHide: true });
                     console.log(`[pm2me] Done! If you see a command above, please copy and run it to finalize startup.`);
                 } catch (e) {
                     console.log(`[pm2me] 'pm2 startup' might need manual execution. Check instructions above.`);
@@ -65,8 +65,8 @@ if (args[0] === 'service') {
     } else if (action === 'uninstall') {
         console.log('[pm2me] Uninstalling background service...');
         try {
-            execSync(`pm2 delete ${SERVICE_NAME}`, { stdio: 'inherit' });
-            execSync(`pm2 save`, { stdio: 'inherit' });
+            execSync(`pm2 delete ${SERVICE_NAME}`, { stdio: 'inherit', windowsHide: true });
+            execSync(`pm2 save`, { stdio: 'inherit', windowsHide: true });
             console.log(`[pm2me] Service uninstalled successfully.`);
             process.exit(0);
         } catch (err) {
@@ -76,7 +76,7 @@ if (args[0] === 'service') {
     } else if (action === 'start') {
         console.log(`[pm2me] Starting service '${SERVICE_NAME}'...`);
         try {
-            execSync(`pm2 start ${SERVICE_NAME}`, { stdio: 'inherit' });
+            execSync(`pm2 start ${SERVICE_NAME}`, { stdio: 'inherit', windowsHide: true });
             process.exit(0);
         } catch (err) {
             console.error(`[pm2me] Failed to start service:`, err.message);
@@ -85,7 +85,7 @@ if (args[0] === 'service') {
     } else if (action === 'stop') {
         console.log(`[pm2me] Stopping service '${SERVICE_NAME}'...`);
         try {
-            execSync(`pm2 stop ${SERVICE_NAME}`, { stdio: 'inherit' });
+            execSync(`pm2 stop ${SERVICE_NAME}`, { stdio: 'inherit', windowsHide: true });
             process.exit(0);
         } catch (err) {
             console.error(`[pm2me] Failed to stop service:`, err.message);
@@ -94,7 +94,7 @@ if (args[0] === 'service') {
     } else if (action === 'restart') {
         console.log(`[pm2me] Restarting service '${SERVICE_NAME}'...`);
         try {
-            execSync(`pm2 restart ${SERVICE_NAME}`, { stdio: 'inherit' });
+            execSync(`pm2 restart ${SERVICE_NAME}`, { stdio: 'inherit', windowsHide: true });
             process.exit(0);
         } catch (err) {
             console.error(`[pm2me] Failed to restart service:`, err.message);
@@ -145,6 +145,7 @@ console.log(`[pm2me] Using database: ${dbPath}`);
 const server = spawn('node', ['app.js'], {
     cwd: backendDir,
     stdio: 'inherit',
+    windowsHide: true,
     env: {
         ...process.env,
         PORT: String(PORT),
