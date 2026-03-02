@@ -1,13 +1,6 @@
 #!/usr/bin/env node
 /**
  * pm2me — CLI entry point
- * Usage: 
- *   pm2me                      (Run in foreground)
- *   pm2me service install      (Run in background via PM2 + set boot startup)
- *   pm2me service uninstall    (Remove from PM2 background)
- *   pm2me service start        (Start background service)
- *   pm2me service stop         (Stop background service)
- *   pm2me service restart      (Restart background service)
  */
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -19,13 +12,25 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkgDir = path.resolve(__dirname, '..');  // root of the package
 const backendDir = path.join(pkgDir, 'backend');
 
-// ── Parse CLI args ────────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
+const SERVICE_NAME = 'pm2me-server';
 
-// ── Handle Service Commands ───────────────────────────────────────────────────
+/**
+ * Check if a PM2 process exists by name
+ */
+function processExists(name) {
+    try {
+        const output = execSync(`pm2 jlist`, { windowsHide: true }).toString();
+        const list = JSON.parse(output);
+        return list.some(p => p.name === name);
+    } catch (e) {
+        return false;
+    }
+}
+
+// ── Service Commands ──────────────────────────────────────────────────────────
 if (args[0] === 'service') {
     const action = args[1];
-    const SERVICE_NAME = 'pm2me-server';
 
     if (action === 'install') {
         console.log('[pm2me] Installing background service...');
@@ -35,6 +40,12 @@ if (args[0] === 'service') {
             const homeDir = path.join(os.homedir(), '.pm2me');
             const dbPath = path.join(homeDir, 'database.json');
 
+            // Clean up existing service if it exists (allows updates)
+            if (processExists(SERVICE_NAME)) {
+                console.log(`[pm2me] Existing service found. Removing for clean update...`);
+                execSync(`pm2 delete ${SERVICE_NAME}`, { stdio: 'inherit', windowsHide: true });
+            }
+
             console.log(`[pm2me] Starting via PM2 as '${SERVICE_NAME}'...`);
             execSync(`pm2 start "${appPath}" --name ${SERVICE_NAME} --env PM2ME_DB_PATH="${dbPath}"`, { stdio: 'inherit', windowsHide: true });
 
@@ -42,62 +53,37 @@ if (args[0] === 'service') {
             execSync(`pm2 save`, { stdio: 'inherit', windowsHide: true });
 
             if (isWindows) {
-                console.log(`\n[pm2me] 💡 Windows Info: '${SERVICE_NAME}' is now running in the background.`);
-                console.log(`[pm2me] To make it start automatically on Windows restart, we recommend using 'pm2-windows-startup':`);
-                console.log(`        npm install -g pm2-windows-startup`);
-                console.log(`        pm2-startup install`);
+                console.log(`\n[pm2me] 💡 Windows Info: Service is now running silently.`);
+                console.log(`[pm2me] To make it start automatically on Windows restart:`);
+                console.log(`        1. npm install -g pm2-windows-startup`);
+                console.log(`        2. pm2-startup install`);
             } else {
                 console.log(`[pm2me] Setting up boot startup...`);
                 try {
                     execSync(`pm2 startup`, { stdio: 'inherit', windowsHide: true });
-                    console.log(`[pm2me] Done! If you see a command above, please copy and run it to finalize startup.`);
-                } catch (e) {
-                    console.log(`[pm2me] 'pm2 startup' might need manual execution. Check instructions above.`);
-                }
+                } catch (e) { }
             }
-
-            console.log(`\n[pm2me] Service installed successfully. Access your UI at http://localhost:12345`);
+            console.log(`\n[pm2me] Service installed successfully. http://localhost:12345`);
             process.exit(0);
         } catch (err) {
             console.error(`[pm2me] Failed to install service:`, err.message);
             process.exit(1);
         }
-    } else if (action === 'uninstall') {
-        console.log('[pm2me] Uninstalling background service...');
-        try {
-            execSync(`pm2 delete ${SERVICE_NAME}`, { stdio: 'inherit', windowsHide: true });
-            execSync(`pm2 save`, { stdio: 'inherit', windowsHide: true });
-            console.log(`[pm2me] Service uninstalled successfully.`);
-            process.exit(0);
-        } catch (err) {
-            console.error(`[pm2me] Failed to uninstall service:`, err.message);
+    } else if (['start', 'stop', 'restart', 'uninstall'].includes(action)) {
+        if (!processExists(SERVICE_NAME)) {
+            console.error(`[pm2me] Error: Service '${SERVICE_NAME}' is not installed.`);
+            console.log(`[pm2me] Please run 'pm2me service install' first.`);
             process.exit(1);
         }
-    } else if (action === 'start') {
-        console.log(`[pm2me] Starting service '${SERVICE_NAME}'...`);
+
+        console.log(`[pm2me] ${action.charAt(0).toUpperCase() + action.slice(1)}ing service '${SERVICE_NAME}'...`);
         try {
-            execSync(`pm2 start ${SERVICE_NAME}`, { stdio: 'inherit', windowsHide: true });
+            const cmd = action === 'uninstall' ? 'delete' : action;
+            execSync(`pm2 ${cmd} ${SERVICE_NAME}`, { stdio: 'inherit', windowsHide: true });
+            if (action === 'uninstall') execSync(`pm2 save`, { stdio: 'inherit', windowsHide: true });
             process.exit(0);
         } catch (err) {
-            console.error(`[pm2me] Failed to start service:`, err.message);
-            process.exit(1);
-        }
-    } else if (action === 'stop') {
-        console.log(`[pm2me] Stopping service '${SERVICE_NAME}'...`);
-        try {
-            execSync(`pm2 stop ${SERVICE_NAME}`, { stdio: 'inherit', windowsHide: true });
-            process.exit(0);
-        } catch (err) {
-            console.error(`[pm2me] Failed to stop service:`, err.message);
-            process.exit(1);
-        }
-    } else if (action === 'restart') {
-        console.log(`[pm2me] Restarting service '${SERVICE_NAME}'...`);
-        try {
-            execSync(`pm2 restart ${SERVICE_NAME}`, { stdio: 'inherit', windowsHide: true });
-            process.exit(0);
-        } catch (err) {
-            console.error(`[pm2me] Failed to restart service:`, err.message);
+            console.error(`[pm2me] Failed to ${action} service:`, err.message);
             process.exit(1);
         }
     } else {
@@ -110,16 +96,13 @@ if (args[0] === 'service') {
 const portArg = args.indexOf('--port');
 const PORT = portArg !== -1 ? args[portArg + 1] : (process.env.PORT || 12345);
 
-// ── Ensure .pm2me home directory exists ───────────────────────────────────────
 const homeDir = path.join(os.homedir(), '.pm2me');
 const defaultAppsDir = path.join(homeDir, 'apps');
 const dbPath = path.join(homeDir, 'database.json');
 
 fs.mkdirSync(defaultAppsDir, { recursive: true });
 
-// ── Ensure database.json exists (first run bootstrap) ────────────────────────
 if (!fs.existsSync(dbPath)) {
-    // Write empty DB — backend will handle setup wizard redirect
     fs.writeFileSync(dbPath, JSON.stringify({
         apps: [],
         settings: {
@@ -134,14 +117,9 @@ if (!fs.existsSync(dbPath)) {
         admin: { passwordHash: '' },
         setupComplete: false,
     }, null, 2));
-    console.log('[pm2me] First run — database initialized at', dbPath);
-    console.log('[pm2me] Apps directory:', defaultAppsDir);
 }
 
-// ── Launch backend server ─────────────────────────────────────────────────────
 console.log(`[pm2me] Starting server on http://localhost:${PORT}`);
-console.log(`[pm2me] Using database: ${dbPath}`);
-
 const server = spawn('node', ['app.js'], {
     cwd: backendDir,
     stdio: 'inherit',
@@ -153,16 +131,10 @@ const server = spawn('node', ['app.js'], {
     },
 });
 
-server.on('error', (err) => {
-    console.error('[pm2me] Failed to start server:', err.message);
-    process.exit(1);
-});
-
 server.on('close', (code) => {
     process.exit(code ?? 0);
 });
 
-// Forward signals
 for (const sig of ['SIGINT', 'SIGTERM']) {
     process.on(sig, () => server.kill(sig));
 }
