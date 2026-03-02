@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 /**
  * pm2me — CLI entry point
- * Usage: pm2me [--port 12345]
+ * Usage: 
+ *   pm2me                      (Run in foreground)
+ *   pm2me service install      (Run in background via PM2 + set boot startup)
+ *   pm2me service uninstall    (Remove from PM2 background)
  */
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 
@@ -15,6 +18,59 @@ const backendDir = path.join(pkgDir, 'backend');
 
 // ── Parse CLI args ────────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
+
+// ── Handle Service Commands ───────────────────────────────────────────────────
+if (args[0] === 'service') {
+    const action = args[1];
+    if (action === 'install') {
+        console.log('[pm2me] Installing background service...');
+        try {
+            // 1. Start pm2me via PM2
+            // We use the full path to the backend app.js
+            const appPath = path.join(backendDir, 'app.js');
+            const homeDir = path.join(os.homedir(), '.pm2me');
+            const dbPath = path.join(homeDir, 'database.json');
+
+            console.log(`[pm2me] Starting via PM2 as 'pm2me-server'...`);
+            execSync(`pm2 start "${appPath}" --name pm2me-server --env PM2ME_DB_PATH="${dbPath}"`, { stdio: 'inherit' });
+
+            // 2. Save PM2 list
+            console.log(`[pm2me] Saving PM2 process list...`);
+            execSync(`pm2 save`, { stdio: 'inherit' });
+
+            // 3. Optional: Startup (User needs to run this with sudo/admin usually, but we try)
+            console.log(`[pm2me] Setting up boot startup...`);
+            try {
+                execSync(`pm2 startup`, { stdio: 'inherit' });
+                console.log(`[pm2me] Done! If you see a command above, please copy and run it to finalize startup.`);
+            } catch (e) {
+                console.log(`[pm2me] 'pm2 startup' might need manual execution. Check instructions above.`);
+            }
+
+            console.log(`[pm2me] Service installed successfully. Access your UI at http://localhost:12345`);
+            process.exit(0);
+        } catch (err) {
+            console.error(`[pm2me] Failed to install service:`, err.message);
+            process.exit(1);
+        }
+    } else if (action === 'uninstall') {
+        console.log('[pm2me] Uninstalling background service...');
+        try {
+            execSync(`pm2 delete pm2me-server`, { stdio: 'inherit' });
+            execSync(`pm2 save`, { stdio: 'inherit' });
+            console.log(`[pm2me] Service uninstalled successfully.`);
+            process.exit(0);
+        } catch (err) {
+            console.error(`[pm2me] Failed to uninstall service:`, err.message);
+            process.exit(1);
+        }
+    } else {
+        console.log(`Usage: pm2me service [install|uninstall]`);
+        process.exit(1);
+    }
+}
+
+// ── Standard Foreground Execution ─────────────────────────────────────────────
 const portArg = args.indexOf('--port');
 const PORT = portArg !== -1 ? args[portArg + 1] : (process.env.PORT || 12345);
 
