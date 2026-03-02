@@ -32,7 +32,7 @@ export const getSystemStats = async () => {
             const promises = [];
 
             // 1. CPU Usage (Every time)
-            const cpuPromise = execPromise('powershell -Command "(Get-Counter \'\\Processor(_Total)\\% Processor Time\' -ErrorAction SilentlyContinue).CounterSamples.CookedValue"', { windowsHide: true })
+            const cpuPromise = execPromise('powershell -WindowStyle Hidden -Command "(Get-Counter \'\\Processor(_Total)\\% Processor Time\' -ErrorAction SilentlyContinue).CounterSamples.CookedValue"', { windowsHide: true })
                 .then(({ stdout }) => {
                     const realCpu = parseFloat(stdout.trim());
                     if (!isNaN(realCpu)) cpuUsage = realCpu;
@@ -41,7 +41,7 @@ export const getSystemStats = async () => {
             promises.push(cpuPromise);
 
             // 2. Network Stats (Every time)
-            const netPromise = execPromise('powershell -Command "Get-NetAdapterStatistics | Select-Object ReceivedBytes, SentBytes | ConvertTo-Json"', { windowsHide: true })
+            const netPromise = execPromise('powershell -WindowStyle Hidden -Command "Get-NetAdapterStatistics | Select-Object ReceivedBytes, SentBytes | ConvertTo-Json"', { windowsHide: true })
                 .then(({ stdout }) => {
                     const netData = JSON.parse(stdout);
                     let totalRx = 0;
@@ -67,7 +67,7 @@ export const getSystemStats = async () => {
 
             // 3. Disk Stats (Cached)
             if (now - cachedDiskStats.lastFetch > DISK_CACHE_TTL) {
-                const diskPromise = execPromise('powershell -Command "Get-Volume -DriveLetter C | Select-Object Size, SizeRemaining | ConvertTo-Json"', { windowsHide: true })
+                const diskPromise = execPromise('powershell -WindowStyle Hidden -Command "Get-Volume -DriveLetter C | Select-Object Size, SizeRemaining | ConvertTo-Json"', { windowsHide: true })
                     .then(({ stdout }) => {
                         const data = JSON.parse(stdout);
                         if (data.Size > 0) {
