@@ -10,9 +10,10 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { exec } from 'child_process';
 import util from 'util';
+import bcrypt from 'bcrypt';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const workspacesDir = path.resolve(__dirname, '../../apps');
+const getWorkspacesDir = () => db.data.settings?.appsPath || path.resolve(__dirname, '../../apps');
 
 const router = express.Router();
 
@@ -139,7 +140,7 @@ router.get('/apps/:id/sync-status', async (req, res) => {
     const appConfig = db.data.apps.find(a => a.id === id);
     if (!appConfig) return res.status(404).json({ error: 'App not found' });
 
-    const targetPath = path.join(workspacesDir, appConfig.name);
+    const targetPath = path.join(getWorkspacesDir(), appConfig.id);
     try {
         const behindCount = await gitService.getBehindCount(appConfig.repoUrl, targetPath, appConfig.branch, appConfig.token);
         res.json({ behindCount });
@@ -349,12 +350,13 @@ export const performDeployment = async (appId, io) => {
     const appConfig = db.data.apps.find(a => a.id === appId);
     if (!appConfig) throw new Error('App not found');
 
-    const targetPath = path.join(workspacesDir, appConfig.name);
-    const logFilePath = path.join(workspacesDir, `${appConfig.name}_deploy.log`);
+    const wsDir = getWorkspacesDir();
+    const targetPath = path.join(wsDir, appConfig.id);
+    const logFilePath = path.join(wsDir, `${appConfig.id}_deploy.log`);
     let lastStep = 'pulling';
 
-    if (!fs.existsSync(workspacesDir)) {
-        fs.mkdirSync(workspacesDir, { recursive: true });
+    if (!fs.existsSync(wsDir)) {
+        fs.mkdirSync(wsDir, { recursive: true });
     }
 
     fs.writeFileSync(logFilePath, `--- Deployment Started at ${new Date().toISOString()} ---\n`);
@@ -924,6 +926,108 @@ router.post('/nginx/action', async (req, res) => {
         const output = [stdout, stderr].filter(Boolean).join('\n').trim();
         const success = !output.toLowerCase().includes('failed') && !output.toLowerCase().includes('error:');
         res.json({ success, output });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── Setup Wizard ──────────────────────────────────────────────────────────────
+// GET /api/setup/status — no auth required (checked before login)
+router.get('/setup/status', async (req, res) => {
+    try {
+        // Always read fresh from disk — detects database.json deletion or changes without restart
+        const dbPath = path.resolve(__dirname, '../db/database.json');
+        if (!fs.existsSync(dbPath)) {
+            // File deleted or not created yet
+            return res.json({ needsSetup: true, missing: ['adminPassword', 'appsPath', 'setupComplete'] });
+        }
+        await db.read(); // Refresh in-memory state from disk
+        const d = db.data;
+        const needsSetup = !d.setupComplete || !d.admin?.passwordHash || !d.settings?.appsPath;
+        const missing = [];
+        if (!d.admin?.passwordHash) missing.push('adminPassword');
+        if (!d.settings?.appsPath) missing.push('appsPath');
+        if (!d.setupComplete) missing.push('setupComplete');
+        res.json({ needsSetup, missing });
+    } catch (err) {
+        // If anything fails reading the DB, assume setup needed
+        res.json({ needsSetup: true, missing: ['setupComplete'] });
+    }
+});
+
+// POST /api/setup/complete — no auth required
+router.post('/setup/complete', async (req, res) => {
+    try {
+        const { adminPassword, appsPath } = req.body;
+        if (!adminPassword || !appsPath) {
+            return res.status(400).json({ error: 'adminPassword and appsPath are required' });
+        }
+        // Hash with bcrypt (same as auth.js uses for verification)
+        const passwordHash = await bcrypt.hash(adminPassword, 10);
+        db.data.admin = { passwordHash };
+        db.data.settings = { ...db.data.settings, appsPath };
+        db.data.setupComplete = true;
+        await db.write();
+        // Ensure apps dir exists
+        fs.mkdirSync(appsPath, { recursive: true });
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── System Version / Update ───────────────────────────────────────────────────
+import { createRequire } from 'module';
+const requireJSON = createRequire(import.meta.url);
+
+router.get('/system/version-check', async (req, res) => {
+    try {
+        // Read local version from root package.json (two levels up from backend/routes/)
+        let localVersion = 'unknown';
+        try {
+            const pkgPath = path.resolve(__dirname, '../../package.json');
+            const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+            localVersion = pkg.version || 'unknown';
+        } catch { }
+
+        // Fetch latest release from GitHub
+        let latest = null, releaseUrl = null, changelog = '';
+        try {
+            const response = await fetch('https://api.github.com/repos/drocketxx/PM2Me/releases/latest', {
+                headers: { 'User-Agent': 'pm2me-updater' }
+            });
+            if (response.ok) {
+                const data = await response.json();
+                latest = data.tag_name?.replace(/^v/, '') || null;
+                releaseUrl = data.html_url || null;
+                changelog = data.body || '';
+            }
+        } catch { }
+
+        const hasUpdate = latest && localVersion !== 'unknown' && latest !== localVersion;
+        res.json({ current: localVersion, latest, hasUpdate, releaseUrl, changelog });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+router.post('/system/update', async (req, res) => {
+    try {
+        // Global npm install if installed globally, otherwise git pull + rebuild
+        const isGlobal = !fs.existsSync(path.resolve(__dirname, '../../.git'));
+        let cmd, cwd;
+        if (isGlobal) {
+            cmd = 'npm install -g pm2me@latest';
+            cwd = '/';
+        } else {
+            cmd = 'git pull origin main && npm run build';
+            cwd = path.resolve(__dirname, '../..');
+        }
+        const { stdout, stderr } = await execAsync(cmd, { cwd }).catch(err => ({
+            stdout: '', stderr: err.message
+        }));
+        const output = [stdout, stderr].filter(Boolean).join('\n').trim();
+        res.json({ success: !stderr.includes('error'), output, cmd });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
