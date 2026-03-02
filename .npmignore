@@ -3,9 +3,9 @@ backend/node_modules/
 frontend/
 .env
 *.local
-backend/db/database.json
-backend/db/_database.json
-backend/db/database.json.bak
+backend/db/*.json
+backend/db/*.bak
+*.json.bak
 .vscode/
 .git/
 .gitignore
