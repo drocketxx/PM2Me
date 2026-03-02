@@ -5,6 +5,9 @@
  *   pm2me                      (Run in foreground)
  *   pm2me service install      (Run in background via PM2 + set boot startup)
  *   pm2me service uninstall    (Remove from PM2 background)
+ *   pm2me service start        (Start background service)
+ *   pm2me service stop         (Stop background service)
+ *   pm2me service restart      (Restart background service)
  */
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -22,6 +25,8 @@ const args = process.argv.slice(2);
 // ── Handle Service Commands ───────────────────────────────────────────────────
 if (args[0] === 'service') {
     const action = args[1];
+    const SERVICE_NAME = 'pm2me-server';
+
     if (action === 'install') {
         console.log('[pm2me] Installing background service...');
         try {
@@ -30,14 +35,14 @@ if (args[0] === 'service') {
             const homeDir = path.join(os.homedir(), '.pm2me');
             const dbPath = path.join(homeDir, 'database.json');
 
-            console.log(`[pm2me] Starting via PM2 as 'pm2me-server'...`);
-            execSync(`pm2 start "${appPath}" --name pm2me-server --env PM2ME_DB_PATH="${dbPath}"`, { stdio: 'inherit' });
+            console.log(`[pm2me] Starting via PM2 as '${SERVICE_NAME}'...`);
+            execSync(`pm2 start "${appPath}" --name ${SERVICE_NAME} --env PM2ME_DB_PATH="${dbPath}"`, { stdio: 'inherit' });
 
             console.log(`[pm2me] Saving PM2 process list...`);
             execSync(`pm2 save`, { stdio: 'inherit' });
 
             if (isWindows) {
-                console.log(`\n[pm2me] 💡 Windows Info: 'pm2me-server' is now running in the background.`);
+                console.log(`\n[pm2me] 💡 Windows Info: '${SERVICE_NAME}' is now running in the background.`);
                 console.log(`[pm2me] To make it start automatically on Windows restart, we recommend using 'pm2-windows-startup':`);
                 console.log(`        npm install -g pm2-windows-startup`);
                 console.log(`        pm2-startup install`);
@@ -60,7 +65,7 @@ if (args[0] === 'service') {
     } else if (action === 'uninstall') {
         console.log('[pm2me] Uninstalling background service...');
         try {
-            execSync(`pm2 delete pm2me-server`, { stdio: 'inherit' });
+            execSync(`pm2 delete ${SERVICE_NAME}`, { stdio: 'inherit' });
             execSync(`pm2 save`, { stdio: 'inherit' });
             console.log(`[pm2me] Service uninstalled successfully.`);
             process.exit(0);
@@ -68,8 +73,35 @@ if (args[0] === 'service') {
             console.error(`[pm2me] Failed to uninstall service:`, err.message);
             process.exit(1);
         }
+    } else if (action === 'start') {
+        console.log(`[pm2me] Starting service '${SERVICE_NAME}'...`);
+        try {
+            execSync(`pm2 start ${SERVICE_NAME}`, { stdio: 'inherit' });
+            process.exit(0);
+        } catch (err) {
+            console.error(`[pm2me] Failed to start service:`, err.message);
+            process.exit(1);
+        }
+    } else if (action === 'stop') {
+        console.log(`[pm2me] Stopping service '${SERVICE_NAME}'...`);
+        try {
+            execSync(`pm2 stop ${SERVICE_NAME}`, { stdio: 'inherit' });
+            process.exit(0);
+        } catch (err) {
+            console.error(`[pm2me] Failed to stop service:`, err.message);
+            process.exit(1);
+        }
+    } else if (action === 'restart') {
+        console.log(`[pm2me] Restarting service '${SERVICE_NAME}'...`);
+        try {
+            execSync(`pm2 restart ${SERVICE_NAME}`, { stdio: 'inherit' });
+            process.exit(0);
+        } catch (err) {
+            console.error(`[pm2me] Failed to restart service:`, err.message);
+            process.exit(1);
+        }
     } else {
-        console.log(`Usage: pm2me service [install|uninstall]`);
+        console.log(`Usage: pm2me service [install|uninstall|start|stop|restart]`);
         process.exit(1);
     }
 }
