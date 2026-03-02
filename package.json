@@ -1,5 +1,5 @@
 {
-  "name": "pm2me",
+  "name": "@drocketxx/pm2me",
   "version": "1.0.0",
   "description": "PM2 Deployment and Management System — Web UI for PM2 process management",
   "type": "module",
