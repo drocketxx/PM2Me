@@ -10,6 +10,38 @@ PM2Me lets you **deploy apps directly from a GitHub repository**, manage PM2 pro
 
 ---
 
+## 🚀 Quick Start (Global Install)
+
+The easiest way to use PM2Me is to install it globally via npm:
+
+```bash
+# 1. Install globally
+npm install -g @drocketxx/pm2me
+
+# 2. Run the server
+pm2me
+```
+
+Open your browser at: **http://localhost:12345**
+
+---
+
+## 🛠️ Running as a Background Service
+
+If you want PM2Me to run in the background and start automatically on system boot, use the built-in `service` command:
+
+```bash
+# Install as a background service (using PM2)
+pm2me service install
+
+# To remove the background service
+pm2me service uninstall
+```
+
+> **Note:** The `service install` command will register PM2Me as `pm2me-server` in PM2 and attempt to set up system startup.
+
+---
+
 ## ✨ Features
 
 | Feature | Details |
@@ -45,188 +77,49 @@ PM2Me lets you **deploy apps directly from a GitHub repository**, manage PM2 pro
 
 ---
 
-## 🚀 Getting Started
+## 🔐 Setup & Security
 
-### Prerequisites
-- [Node.js](https://nodejs.org/) >= 18
-- [PM2](https://pm2.keymetrics.io/) installed globally: `npm install -g pm2`
-- [Git](https://git-scm.com/) installed and accessible in `PATH`
+### First Run
+On your first run, PM2Me will guide you through a **Setup Wizard** to configure your apps storage path and set your admin password.
 
-### Installation & Running (Recommended with PM2)
+### Data Storage
+- **Database:** Stored in `~/.pm2me/database.json`
+- **Cloned Apps:** Default to `~/.pm2me/apps/` (User configurable)
+
+### GitHub Webhooks
+1. Go to your GitHub repository → **Settings** → **Webhooks** → **Add webhook**
+2. Set **Payload URL** to: `http://your-server-ip:12345/api/webhook`
+3. Set **Content type** to: **`application/json`** ⚠️
+4. Set **Secret** from the Settings page in PM2Me
+5. Select **Just the push event**
+
+---
+
+## 🛠️ Manual Installation (For Developers)
+
+If you want to contribute or run from source:
 
 ```bash
 # 1. Clone the repository
 git clone https://github.com/drocketxx/PM2Me.git
 cd PM2Me
 
-# 2. Install all dependencies (frontend + backend)
+# 2. Install all dependencies
 npm run install:all
 
 # 3. Build the frontend
 npm run build
 
-# 4. Start PM2Me with PM2 ✅ Recommended
-cd backend
-pm2 start app.js --name pm2me
-
-# 5. Auto-start on system reboot
-pm2 save
-pm2 startup
-```
-
-Open your browser at: **http://localhost:12345**
-
-> 💡 **Useful PM2 commands:**
-> ```bash
-> pm2 status          # Check PM2Me status
-> pm2 logs pm2me      # View PM2Me logs
-> pm2 restart pm2me   # Restart PM2Me
-> pm2 stop pm2me      # Stop PM2Me
-> ```
-
-**Development mode** (nodemon auto-restart):
-```bash
-cd /path/to/PM2Me
+# 4. Start in development mode
 npm run dev
-```
-
----
-
-## 🔐 Default Login & Password Management
-
-On first run, **no password is set**. Use the CLI to set one:
-
-```bash
-# Set or change admin password
-npm run pw -- <your_password>
-
-# Example
-npm run pw -- mySecretPass123
-```
-
-> You can also run it directly from the `backend/` folder:
-> ```bash
-> cd backend && node scripts/change-password.js mySecretPass123
-> ```
->
-> The password is stored as a **bcrypt hash** (12 rounds) in `backend/db/database.json`.
-
----
-
-## 🔗 GitHub Webhook Setup
-
-PM2Me supports automatic deployments triggered by `git push`. Here's how to enable it:
-
-1. Go to your GitHub repository → **Settings** → **Webhooks** → **Add webhook**
-2. Set **Payload URL** to: `http://your-server-ip:12345/api/webhook`
-3. Set **Content type** to: **`application/json`** ⚠️
-4. Set **Secret** from the Settings page in PM2Me (generate one if needed)
-5. Select **Just the push event**
-6. Click **Add webhook**
-
-PM2Me will automatically re-deploy any matching app (matched by repo URL + branch) on each push.
-
-> **Webhook History** (last 50 events) is displayed on the Settings page in real-time.
-
----
-
-## 📂 Project Structure
-
-```
-PM2Me/
-├── backend/
-│   ├── app.js              # Express server + Socket.IO setup
-│   ├── db/
-│   │   ├── index.js        # LowDB initialization
-│   │   └── database.json   # App data, settings, webhook logs
-│   ├── routes/
-│   │   ├── api.js          # Main API routes
-│   │   └── auth.js         # Login / JWT auth
-│   ├── services/
-│   │   ├── gitService.js   # Git clone/pull operations
-│   │   ├── pm2Service.js   # PM2 process management
-│   │   ├── systemService.js# CPU / RAM / Disk / Network stats
-│   │   └── notificationService.js # Discord & Telegram alerts
-│   ├── scripts/
-│   │   └── change-password.js  # CLI tool to change admin password
-│   └── public/             # Built Vue frontend (served statically)
-├── frontend/
-│   ├── src/
-│   │   ├── views/
-│   │   │   ├── Dashboard.vue   # Main app dashboard
-│   │   │   ├── Settings.vue    # Settings & webhook history
-│   │   │   └── Login.vue       # Auth page
-│   │   ├── components/
-│   │   │   ├── DeployModal.vue # New/Edit app deployment modal
-│   │   │   ├── LogViewer.vue   # Real-time log stream
-│   │   │   └── ServerStats.vue # CPU/RAM/Network widget
-│   │   ├── router/             # Vue Router config
-│   │   └── App.vue             # Nav layout
-│   └── vite.config.js
-├── apps/                   # Cloned app repos live here
-└── package.json            # Root scripts (dev, build, pw)
-```
-
----
-
-## 📝 Available Scripts
-
-Run these from the **root** `PM2Me/` directory:
-
-| Command | Description |
-|---|---|
-| `npm run dev` | Build frontend & start backend dev server |
-| `npm run build` | Build frontend only |
-| `npm run pw -- <password>` | Change admin password |
-| `npm run install:all` | Install all dependencies (root + frontend + backend) |
-
----
-
-## 📡 API Overview
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/auth/login` | Login, returns JWT token |
-| `GET` | `/api/pm2/list` | List all PM2 processes |
-| `POST` | `/api/pm2/:action` | PM2 action: start/stop/restart/delete |
-| `GET` | `/api/apps` | List all deployed apps (DB) |
-| `POST` | `/api/apps` | Register a new app |
-| `PUT` | `/api/apps/:id` | Update app config |
-| `DELETE` | `/api/apps/:id` | Delete app from DB |
-| `POST` | `/api/apps/:id/deploy` | Trigger deployment |
-| `GET` | `/api/apps/:id/sync-status` | Check if branch is behind remote |
-| `GET` | `/api/settings` | Get current settings |
-| `POST` | `/api/settings` | Save settings |
-| `GET` | `/api/settings/webhook-logs` | Get last 50 webhook events |
-| `POST` | `/api/webhook` | GitHub Webhook receiver |
-| `GET` | `/api/system/stats` | Server system stats |
-
----
-
-## 📦 Deployment (Production)
-
-For production, it's recommended to run the PM2Me backend itself with PM2:
-
-```bash
-# Build the frontend
-npm run build
-
-# Start with PM2
-cd backend
-pm2 start app.js --name pm2me
-
-# Save and set to auto-restart on reboot
-pm2 save
-pm2 startup
 ```
 
 ---
 
 ## 🛡 Security Notes
 
-- Change the default admin password immediately on first run using `npm run pw`.
-- Set a strong `JWT_SECRET` in your `.env` file.
-- Always set a **Webhook Secret** to prevent unauthorized deploys.
+- Set a strong admin password during the setup wizard.
+- Always use a **Webhook Secret** to prevent unauthorized deployment triggers.
 - Consider putting PM2Me behind a reverse proxy (e.g., Nginx) with HTTPS in production.
 
 ---
