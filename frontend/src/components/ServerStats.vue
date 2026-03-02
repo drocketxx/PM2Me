@@ -76,7 +76,7 @@
     <!-- Disk Stat -->
     <div class="bg-slate-800/80 backdrop-blur-sm p-5 rounded-2xl border border-slate-700 shadow-lg group hover:border-orange-500/50 transition-all duration-300">
       <div class="flex items-center justify-between mb-3">
-        <span class="text-slate-400 text-sm font-medium">Storage (C:)</span>
+        <span class="text-slate-400 text-sm font-medium">{{ storageLabel }}</span>
         <div class="p-2 bg-orange-500/10 rounded-lg text-orange-400">
           <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
@@ -117,12 +117,17 @@ import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { io } from 'socket.io-client'
 
 const stats = ref({
+  platform: 'linux',
   cpu: { usage: 0, model: 'Loading...', cores: 0 },
   memory: { total: 0, free: 0, used: 0, percentage: 0 },
   disk: { total: 0, free: 0, used: 0, percentage: 0 },
   network: { down: 0, up: 0 },
   uptime: 0,
   hostname: '...'
+})
+
+const storageLabel = computed(() => {
+  return stats.value.platform === 'win32' ? 'Storage (C:)' : 'Storage (/)'
 })
 
 let socket = null

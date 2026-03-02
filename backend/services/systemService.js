@@ -90,6 +90,56 @@ export const getSystemStats = async () => {
         } catch (e) {
             console.error('Failed to get system stats via PowerShell:', e);
         }
+    } else {
+        // Linux/Unix systems
+        try {
+            const now = Date.now();
+            const promises = [];
+
+            // 1. Network Stats (Every time) - read from /proc/net/dev
+            const netPromise = execPromise("cat /proc/net/dev | awk 'NR>2 {rx+=$2; tx+=$10} END {print rx\" \"tx}'")
+                .then(({ stdout }) => {
+                    const [rxStr, txStr] = stdout.trim().split(' ');
+                    const totalRx = parseInt(rxStr) || 0;
+                    const totalTx = parseInt(txStr) || 0;
+                    const timeDiff = (now - lastNetworkStats.time) / 1000;
+                    if (timeDiff > 0 && lastNetworkStats.rx > 0) {
+                        networkUsage.down = Math.max(0, (totalRx - lastNetworkStats.rx) / timeDiff);
+                        networkUsage.up = Math.max(0, (totalTx - lastNetworkStats.tx) / timeDiff);
+                    }
+                    lastNetworkStats = { rx: totalRx, tx: totalTx, time: now };
+                })
+                .catch(e => console.error('Network fetch failed:', e));
+            promises.push(netPromise);
+
+            // 2. Disk Stats (Cached) - use df for root filesystem
+            if (now - cachedDiskStats.lastFetch > DISK_CACHE_TTL) {
+                const diskPromise = execPromise("df -B1 / | awk 'NR==2 {print $2\" \"$3\" \"$4}'")
+                    .then(({ stdout }) => {
+                        const [totalStr, usedStr, freeStr] = stdout.trim().split(' ');
+                        const total = parseInt(totalStr) || 0;
+                        const used = parseInt(usedStr) || 0;
+                        const free = parseInt(freeStr) || 0;
+                        if (total > 0) {
+                            cachedDiskStats = {
+                                total,
+                                free,
+                                used,
+                                percentage: (used / total) * 100,
+                                lastFetch: now
+                            };
+                        }
+                    })
+                    .catch(e => console.error('Disk fetch failed:', e));
+                promises.push(diskPromise);
+            }
+
+            // Run all in parallel
+            await Promise.all(promises);
+            diskUsage = cachedDiskStats;
+        } catch (e) {
+            console.error('Failed to get system stats on Linux:', e);
+        }
     }
 
     return {
