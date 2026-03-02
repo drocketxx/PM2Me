@@ -1,17 +1,12 @@
 {
   "name": "@drocketxx/pm2me",
-  "version": "1.1.9",
+  "version": "1.1.10",
   "description": "PM2 Deployment and Management System — Web UI for PM2 process management",
   "type": "module",
   "main": "backend/app.js",
   "bin": {
     "pm2me": "./bin/pm2me.js"
   },
-  "files": [
-    "bin/",
-    "backend/",
-    "README.md"
-  ],
   "dependencies": {
     "bcrypt": "^6.0.0",
     "connect-history-api-fallback": "^2.0.0",
