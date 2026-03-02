@@ -2,10 +2,12 @@ import { createRouter, createWebHistory } from 'vue-router'
 import Login from '../views/Login.vue'
 import Dashboard from '../views/Dashboard.vue'
 import Settings from '../views/Settings.vue'
+import Nginx from '../views/Nginx.vue'
 
 const routes = [
     { path: '/login', name: 'Login', component: Login },
     { path: '/', name: 'Dashboard', component: Dashboard, meta: { requiresAuth: true } },
+    { path: '/nginx', name: 'Nginx', component: Nginx, meta: { requiresAuth: true } },
     { path: '/settings', name: 'Settings', component: Settings, meta: { requiresAuth: true } }
 ]
 

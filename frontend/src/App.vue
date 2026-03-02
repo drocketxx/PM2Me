@@ -25,6 +25,19 @@
             <button @click="$router.push('/settings')"
               :class="[
                 'flex items-center space-x-2 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-200',
+                $route.path === '/nginx' 
+                  ? 'bg-blue-600/10 text-blue-400 shadow-sm border border-blue-500/20' 
+                  : 'text-slate-400 hover:text-white hover:bg-slate-800'
+              ]"
+              @click.prevent="$router.push('/nginx')">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"/>
+              </svg>
+              <span>Nginx</span>
+            </button>
+            <button @click="$router.push('/settings')"
+              :class="[
+                'flex items-center space-x-2 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-200',
                 $route.path === '/settings' 
                   ? 'bg-blue-600/10 text-blue-400 shadow-sm border border-blue-500/20' 
                   : 'text-slate-400 hover:text-white hover:bg-slate-800'

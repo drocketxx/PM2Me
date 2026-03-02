@@ -701,4 +701,135 @@ router.get('/settings/webhook-logs', (req, res) => {
     res.json(db.data.webhookLogs || []);
 });
 
+// ─── Nginx Management ────────────────────────────────────────────────────────
+import os from 'os';
+
+const isWindows = os.platform() === 'win32';
+const NGINX_CONF = isWindows ? 'C:\\nginx\\conf\\nginx.conf' : '/etc/nginx/nginx.conf';
+const NGINX_CONF_DIR = isWindows ? 'C:\\nginx\\conf' : '/etc/nginx';
+const NGINX_BIN = isWindows ? 'C:\\nginx\\nginx.exe' : 'nginx';
+
+// GET nginx info (os, paths, status)
+router.get('/nginx/info', async (req, res) => {
+    try {
+        const info = {
+            os: isWindows ? 'windows' : 'linux',
+            confFile: NGINX_CONF,
+            confDir: NGINX_CONF_DIR,
+            nginxBin: NGINX_BIN,
+        };
+
+        // Check if nginx binary exists / is installed
+        try {
+            const checkCmd = isWindows
+                ? `"${NGINX_BIN}" -v`
+                : 'nginx -v';
+            const { stderr } = await execAsync(checkCmd);
+            const match = (stderr || '').match(/nginx\/([\\d.]+)/);
+            info.version = match ? match[1] : 'unknown';
+            info.installed = true;
+        } catch {
+            info.installed = false;
+        }
+
+        res.json(info);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET nginx status (running or not)
+router.get('/nginx/status', async (req, res) => {
+    try {
+        let running = false;
+        try {
+            if (isWindows) {
+                const { stdout } = await execAsync('tasklist /FI "IMAGENAME eq nginx.exe" /NH');
+                running = stdout.toLowerCase().includes('nginx.exe');
+            } else {
+                const { stdout } = await execAsync('pgrep -x nginx');
+                running = stdout.trim().length > 0;
+            }
+        } catch {
+            running = false;
+        }
+        res.json({ running });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET nginx config file content
+router.get('/nginx/config', async (req, res) => {
+    try {
+        const filePath = req.query.file || NGINX_CONF;
+        if (!fs.existsSync(filePath)) {
+            return res.json({ content: '', exists: false, path: filePath });
+        }
+        const content = fs.readFileSync(filePath, 'utf8');
+        res.json({ content, exists: true, path: filePath });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST save nginx config file
+router.post('/nginx/config', async (req, res) => {
+    try {
+        const { content, file } = req.body;
+        const filePath = file || NGINX_CONF;
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, content, 'utf8');
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST nginx action: test | start | reload | stop | quit
+router.post('/nginx/action', async (req, res) => {
+    const { action } = req.body;
+    const validActions = ['test', 'start', 'reload', 'stop', 'quit'];
+    if (!validActions.includes(action)) {
+        return res.status(400).json({ error: 'Invalid action' });
+    }
+
+    try {
+        let cmd;
+        if (isWindows) {
+            const bin = `"${NGINX_BIN}"`;
+            const cmdMap = {
+                test: `${bin} -t -c "${NGINX_CONF}"`,
+                start: `Start-Process -FilePath "${NGINX_BIN}" -WorkingDirectory "C:\\nginx" -WindowStyle Hidden`,
+                reload: `${bin} -s reload`,
+                stop: `${bin} -s stop`,
+                quit: `${bin} -s quit`,
+            };
+            cmd = action === 'start'
+                ? `powershell -Command "${cmdMap.start}"`
+                : cmdMap[action];
+        } else {
+            const cmdMap = {
+                test: `sudo nginx -t`,
+                start: `sudo nginx`,
+                reload: `sudo nginx -s reload`,
+                stop: `sudo nginx -s stop`,
+                quit: `sudo nginx -s quit`,
+            };
+            cmd = cmdMap[action];
+        }
+
+        const { stdout, stderr } = await execAsync(cmd).catch(err => ({
+            stdout: err.stdout || '',
+            stderr: err.stderr || err.message,
+        }));
+
+        const output = [stdout, stderr].filter(Boolean).join('\n').trim();
+        const success = !output.toLowerCase().includes('failed') && !output.toLowerCase().includes('error:');
+        res.json({ success, output });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 export default router;
