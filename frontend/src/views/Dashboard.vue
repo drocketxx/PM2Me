@@ -109,8 +109,8 @@
     </div>
 
     <!-- PM2 Apps List -->
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      <div v-for="app in pm2Apps" :key="app.pm_id"
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
+      <div v-for="app in pm2Apps" :key="app.unique_key"
         class="bg-slate-800/80 backdrop-blur-sm rounded-2xl shadow-xl border border-slate-700 p-6 flex flex-col transition-all hover:border-slate-600 hover:shadow-2xl">
         <div class="flex items-start justify-between mb-4 gap-3">
           <div class="flex items-start space-x-3 min-w-0 flex-1">
@@ -167,7 +167,7 @@
           </div>
         </div>
 
-        <div class="grid grid-cols-2 gap-4 mb-4 text-sm">
+        <div v-if="app.status !== 'deploying'" class="grid grid-cols-2 gap-4 mb-4 text-sm">
           <div class="bg-slate-900/50 rounded-lg p-3 border border-slate-700">
             <p class="text-slate-500 mb-1 leading-none text-xs">CPU Usage</p>
             <p class="font-semibold text-slate-200">{{ app.monit ? app.monit.cpu : 0 }}%</p>
@@ -187,24 +187,22 @@
         </div>
 
         <!-- Latest Commit -->
-        <div v-if="app.commitMessage"
+        <div v-if="app.commitMessage && app.status !== 'deploying'"
           class="mb-4 text-[11px] bg-slate-900/50 border border-slate-700/50 p-2 rounded-lg text-slate-400 font-mono flex items-start"
           title="Latest Commit">
-          <svg class="w-3.5 h-3.5 mr-2 mt-0.5 flex-shrink-0 text-slate-500" fill="none" viewBox="0 0 24 24"
-            stroke="currentColor">
-            <circle cx="12" cy="12" r="3" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></circle>
-            <line x1="3" y1="12" x2="9" y2="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></line>
-            <line x1="15" y1="12" x2="21" y2="12" stroke-linecap="round" stroke-linejoin="round" stroke-width="2">
-            </line>
-          </svg>
-          <span class="truncate">{{ app.commitMessage }}</span>
+          <svg xmlns="http://www.w3.org/2000/svg" class="mr-2" width="14" height="14" viewBox="0 0 24 24"><!-- Icon from Sharp free icons by Streamline - https://creativecommons.org/licenses/by/4.0/ --><path fill="currentColor" fill-rule="evenodd" d="M15 2H9v6h2v3H3v5H1v6h6v-6H5v-3h6v3H9v6h6v-6h-2v-3h6v3h-2v6h6v-6h-2v-5h-8V8h2z" clip-rule="evenodd"/></svg>
+          <span class="truncate">
+            <span v-if="app.branch" class="text-blue-400 font-bold mr-1">{{ app.branch }}</span>
+            <span v-if="app.branch" class="text-slate-600 mr-1">•</span>
+            {{ app.commitMessage }}
+          </span>
         </div>
 
         <!-- Failed Commit / Rollback Warning -->
         <div v-if="app.rollbackOccurred && app.failedCommitMessage"
           class="mb-4 text-[10px] bg-red-500/10 border border-red-500/20 p-2 rounded-lg text-red-400 font-mono flex flex-col gap-1 shadow-[0_0_10px_rgba(239,68,68,0.1)]">
           <div class="flex items-center gap-1 font-bold uppercase tracking-wider text-[9px]">
-            <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg class="w-3 h-3" fill="none" viewBox="0 0 12 12" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                 d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
@@ -381,9 +379,9 @@
                 d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
             </svg>
             {{ loadingActions[`${app.name}-deploy`] ? 'Syncing' : 'Sync' }}
-            <span v-if="!loadingActions[`${app.name}-deploy`] && syncStatuses[getDbAppId(app.name)]"
+            <span v-if="!loadingActions[`${app.name}-deploy`] && syncStatuses[app.id]"
               class="ml-1 px-1.5 py-0.5 text-[10px] bg-purple-500/20 text-purple-300 rounded-full border border-purple-500/30 font-bold">
-              {{ syncStatuses[getDbAppId(app.name)] }}
+              {{ syncStatuses[app.id] }}
             </span>
           </button>
         </div>
@@ -679,8 +677,8 @@ let socket = null
 let pollInterval
 
 const deployingApps = computed(() => {
-  const pm2Names = (pm2Apps.value || []).map(a => a?.name).filter(Boolean)
-  return (dbApps.value || []).filter(a => a && !pm2Names.includes(a.name))
+  const pm2AppDbIds = (pm2Apps.value || []).map(a => a?.id).filter(Boolean)
+  return (dbApps.value || []).filter(a => a && !pm2AppDbIds.includes(a.id))
 })
 
 const fetchApps = async () => {
@@ -705,22 +703,36 @@ const fetchApps = async () => {
     }
 
     // Inject commit hash into pm2Apps for display
-    pm2Apps.value = pm2Apps.value.map(pm2App => {
-      if (!pm2App) return null;
-      const dbMatch = dbApps.value.find(db => db && db.name === pm2App.name)
-      if (dbMatch) {
-        pm2App.id = dbMatch.id;
-        pm2App.commitHash = dbMatch.commitHash;
-        pm2App.commitMessage = dbMatch.commitMessage;
-        pm2App.rollbackOccurred = dbMatch.rollbackOccurred;
-        pm2App.failedCommitHash = dbMatch.failedCommitHash;
-        pm2App.failedCommitMessage = dbMatch.failedCommitMessage;
-        pm2App.pipelineState = pipelineStates.value[dbMatch.id] || dbMatch.pipelineState || 'hidden';
+    let enrichedPm2Apps = []
+    const rawPm2Apps = pm2Apps.value
+
+    rawPm2Apps.forEach(pm2App => {
+      if (!pm2App) return;
+      const matchingDbApps = dbApps.value.filter(db => db && db.name === pm2App.name)
+
+      if (matchingDbApps.length > 0) {
+        matchingDbApps.forEach(dbMatch => {
+          const clone = JSON.parse(JSON.stringify(pm2App))
+          clone.id = dbMatch.id;
+          clone.commitHash = dbMatch.commitHash;
+          clone.commitMessage = dbMatch.commitMessage;
+          clone.branch = dbMatch.branch;
+          clone.rollbackOccurred = dbMatch.rollbackOccurred;
+          clone.failedCommitHash = dbMatch.failedCommitHash;
+          clone.failedCommitMessage = dbMatch.failedCommitMessage;
+          clone.pipelineState = pipelineStates.value[dbMatch.id] || dbMatch.pipelineState || 'hidden';
+          clone.unique_key = `pm2_${clone.pm_id}_db_${dbMatch.id}`;
+          enrichedPm2Apps.push(clone);
+        })
       } else {
-        pm2App.pipelineState = 'hidden';
+        const clone = JSON.parse(JSON.stringify(pm2App))
+        clone.pipelineState = 'hidden';
+        clone.unique_key = `pm2_${clone.pm_id}`;
+        enrichedPm2Apps.push(clone);
       }
-      return pm2App
-    }).filter(Boolean)
+    })
+
+    pm2Apps.value = enrichedPm2Apps.filter(Boolean)
 
     // Fetch sync status for all apps
     dbApps.value.forEach(app => {
@@ -834,21 +846,24 @@ const retryDeploy = async (id, appName) => {
 }
 
 const retryDeployForPm2App = (app) => {
-  const dbApp = dbApps.value.find(db => db.name === app.name);
-  if (!dbApp) {
-    alert('Cannot deploy this app as it was not deployed via PM2Me (No config found).');
-    return;
+  if (app.id) {
+    retryDeploy(app.id, app.name);
+  } else {
+    // legacy fallback
+    const dbApp = dbApps.value.find(db => db.name === app.name);
+    if (dbApp) retryDeploy(dbApp.id, app.name);
+    else alert('Cannot deploy this app as it was not deployed via PM2Me (No config found).');
   }
-  retryDeploy(dbApp.id, app.name);
 }
 
 const openLogs = (app) => {
   currentLogAppName.value = app.name
-  // If it's a pm2 app, it doesn't have the db appId attached easily. 
-  // So we'll find matching dbApp by name. If not, use PM2 name as ID (backend needs to support this or stream logic depends on appId)
-  // For now, let's just make sure PM2 apps match their DB counterpart.
-  const dbApp = dbApps.value.find(db => db.name === app.name)
-  currentLogAppId.value = dbApp ? dbApp.id : app.name
+  if (app.id) {
+    currentLogAppId.value = app.id
+  } else {
+    const dbApp = dbApps.value.find(db => db.name === app.name)
+    currentLogAppId.value = dbApp ? dbApp.id : app.name
+  }
   showLogViewer.value = true
 }
 

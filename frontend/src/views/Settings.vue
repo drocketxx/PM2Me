@@ -19,6 +19,29 @@
 
       <div class="p-6 space-y-6">
         <div>
+          <div class="flex items-center justify-between mb-2">
+            <label class="block text-sm font-medium text-slate-300">Apps Storage Path</label>
+            <button @click="isEditingAppsPath = !isEditingAppsPath"
+              class="text-xs flex items-center transition-colors"
+              :class="isEditingAppsPath ? 'text-amber-400 hover:text-amber-300' : 'text-blue-400 hover:text-blue-300'">
+              <svg class="w-3.5 h-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" v-if="!isEditingAppsPath"
+                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" v-else
+                  d="M6 18L18 6M6 6l12 12" />
+              </svg>
+              {{ isEditingAppsPath ? 'Cancel Edit' : 'Edit' }}
+            </button>
+          </div>
+          <input type="text" v-model="settings.appsPath" :disabled="!isEditingAppsPath"
+            class="w-full bg-slate-900 border border-slate-600 rounded-lg px-4 py-2.5 text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            placeholder="e.g. /home/user/.pm2me/apps or C:\pm2me\apps">
+          <p class="mt-1 text-xs text-slate-500">The directory where GitHub repositories will be cloned. Leave empty for default. (Requires server restart if changed)</p>
+        </div>
+
+        <hr class="border-slate-700">
+
+        <div>
           <label class="block text-sm font-medium text-slate-300 mb-2">Connected GitHub Accounts</label>
           <div class="space-y-3 mb-4">
             <div v-for="acc in githubAccounts" :key="acc.id"
@@ -383,12 +406,14 @@ const settings = ref({
   webhookSecret: '',
   discordWebhook: '',
   telegramBotToken: '',
-  telegramChatId: ''
+  telegramChatId: '',
+  appsPath: ''
 })
 const githubAccounts = ref([])
 const isSaving = ref(false)
 const isConnecting = ref(false)
 const isFetchingLogs = ref(false)
+const isEditingAppsPath = ref(false)
 const newToken = ref('')
 const showSecret = ref(false)
 const copiedField = ref('')
@@ -504,6 +529,7 @@ const saveSettings = async () => {
       },
       body: JSON.stringify(settings.value)
     })
+    isEditingAppsPath.value = false // Reset edit state after save
     alert('Settings Saved Successfully')
   } catch (e) {
     alert('Failed to save settings')

@@ -8,7 +8,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 import crypto from 'crypto';
-import { exec } from 'child_process';
+import { exec, execSync, execFile } from 'child_process';
 import util from 'util';
 import bcrypt from 'bcrypt';
 import os from 'os';
@@ -41,6 +41,7 @@ router.get('/system/stats', async (req, res) => {
 
 // GET PM2 version and update check
 const execAsync = util.promisify(exec);
+const execFileAsync = util.promisify(execFile);
 router.get('/pm2/version-check', async (req, res) => {
     try {
         // Check globally installed PM2 version via npm (avoids local node_modules/.bin/pm2)
@@ -104,11 +105,21 @@ router.post('/pm2/:action', async (req, res) => {
         else if (action === 'reload') result = await pm2Service.reloadApp(nameOrId);
         else if (action === 'delete') result = await pm2Service.deleteApp(nameOrId);
 
-        // Find app by name to emit system log
+        // Find app by name to emit system log and save to history
         const app = db.data.apps.find(a => a.name === nameOrId);
-        if (app && req.io) {
+        if (app) {
             const actionLabel = action.charAt(0).toUpperCase() + action.slice(1);
-            req.io.emit(`deploy-log-${app.id}`, `[pm2me] ${actionLabel}`);
+            const logString = `[pm2me] Action: ${actionLabel} executed manually by user\n`;
+
+            if (req.io) {
+                req.io.emit(`deploy-log-${app.id}`, logString.trim());
+            }
+
+            // Append to deploy log
+            const logFilePath = path.join(getWorkspacesDir(), `${app.id}_deploy.log`);
+            if (fs.existsSync(logFilePath)) {
+                fs.appendFileSync(logFilePath, logString);
+            }
         }
 
         res.json({ success: true, result });
@@ -150,18 +161,66 @@ router.get('/apps/:id/sync-status', async (req, res) => {
     }
 });
 
+// GET native PM2 logs - reads directly from C:\Users\xxx\.pm2\logs\appname-out.log
+router.get('/apps/:id/pm2-logs', async (req, res) => {
+    const { id } = req.params;
+    const appConfig = db.data.apps.find(a => a.id === id);
+    if (!appConfig) return res.status(404).send('App not found');
+
+    try {
+        await pm2Service.connectPM2();
+        const list = await pm2Service.listApps();
+        const pmApp = list.find(a => a.name === appConfig.name);
+
+        if (!pmApp?.pm2_env) {
+            return res.send(`App "${appConfig.name}" is not currently running in PM2.`);
+        }
+
+        const readTail = (filePath, maxLines) => {
+            if (!filePath || !fs.existsSync(filePath)) return [];
+            const size = fs.statSync(filePath).size;
+            if (size === 0) return [];
+            const readBytes = Math.min(size, 100000);
+            const buf = Buffer.alloc(readBytes);
+            const fd = fs.openSync(filePath, 'r');
+            fs.readSync(fd, buf, 0, readBytes, size - readBytes);
+            fs.closeSync(fd);
+            return buf.toString('utf8').split('\n').filter(l => l.trim()).slice(-maxLines);
+        };
+
+        const outLines = readTail(pmApp.pm2_env.pm_out_log_path, 200);
+        const errLines = readTail(pmApp.pm2_env.pm_err_log_path, 50)
+            .map(l => `[stderr] ${l}`);
+
+        const all = [...outLines, ...errLines];
+        res.send(all.join('\n'));
+    } catch (err) {
+        res.status(500).send(`Error reading PM2 logs: ${err.message}`);
+    }
+});
+
+
 router.put('/apps/:id', async (req, res) => {
     const { id } = req.params;
     const index = db.data.apps.findIndex(app => app.id === id);
     if (index === -1) return res.status(404).json({ error: 'App not found' });
 
+    const oldApp = db.data.apps[index];
+    const newName = req.body.name;
+    const isNameChanged = newName && oldApp.name && newName !== oldApp.name;
+
     // Merge new config, but preserve id and status
     db.data.apps[index] = {
-        ...db.data.apps[index],
+        ...oldApp,
         ...req.body,
-        id: db.data.apps[index].id,
-        status: db.data.apps[index].status
+        id: oldApp.id,
+        status: oldApp.status
     };
+
+    if (isNameChanged) {
+        db.data.apps[index].previousName = oldApp.name;
+    }
+
     await db.write();
     res.json(db.data.apps[index]);
 });
@@ -265,6 +324,84 @@ router.get('/git/repositories', async (req, res) => {
     }
 });
 
+const buildPM2StartOptions = (appConfig, targetPath, updateEnv = false) => {
+    let pmArgs = [];
+    if (appConfig.pm2Args) pmArgs = appConfig.pm2Args.split(' ').filter(Boolean);
+
+    let scriptName = appConfig.pm2Script || 'npm';
+
+    // To prevent Windows console popups caused by `npm` spawning sub-processes,
+    // we intercept 'npm run [script]' and extract the direct 'node' command from package.json
+    if (os.platform() === 'win32' && scriptName.toLowerCase() === 'npm') {
+        const isRun = pmArgs[0] === 'run';
+        const targetNpmScript = isRun ? pmArgs[1] : (pmArgs[0] === 'start' ? 'start' : null);
+
+        if (targetNpmScript) {
+            try {
+                const pkgPath = path.join(targetPath, 'package.json');
+                if (fs.existsSync(pkgPath)) {
+                    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+                    if (pkg.scripts && pkg.scripts[targetNpmScript]) {
+                        const rawCommand = pkg.scripts[targetNpmScript].trim();
+                        // If it's a simple node command, bypass npm entirely
+                        if (rawCommand.startsWith('node ')) {
+                            const parsedArgs = rawCommand.substring(5).trim().split(' ');
+                            scriptName = parsedArgs[0]; // e.g. dist/server.js
+                            pmArgs = parsedArgs.slice(1);
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error('Failed to parse package.json for script resolution', e);
+            }
+        }
+    }
+
+    if (os.platform() === 'win32') {
+        if (scriptName === 'npm') {
+            try {
+                const root = execSync('npm root -g', { windowsHide: true }).toString().trim();
+                const cliPath = path.join(root, 'npm', 'bin', 'npm-cli.js');
+                if (fs.existsSync(cliPath)) {
+                    scriptName = cliPath;
+                } else {
+                    scriptName += '.cmd';
+                }
+            } catch (e) {
+                scriptName += '.cmd';
+            }
+        } else if (['yarn', 'pnpm', 'npx'].includes(scriptName)) {
+            scriptName += '.cmd';
+        }
+    }
+
+    let startOptions = {
+        name: appConfig.name,
+        cwd: targetPath,
+        script: scriptName,
+        args: pmArgs,
+        env: appConfig.env || {}
+    };
+
+    if (updateEnv) startOptions.updateEnv = true;
+
+    if (os.platform() === 'win32' && scriptName.endsWith('.cmd')) {
+        startOptions.interpreter = 'none';
+        startOptions.windowsHide = true;
+    } else if (!scriptName.endsWith('.js') && !scriptName.endsWith('.mjs')) {
+        startOptions.interpreter = 'none';
+    }
+
+    if (os.platform() === 'win32') {
+        startOptions.windowsHide = true;
+    }
+
+    if (appConfig.ecosystemFile) {
+        return path.join(targetPath, appConfig.ecosystemFile);
+    }
+    return startOptions;
+};
+
 const rollback = async (appId, appConfig, io, targetPath, lastStep, logProcess, setPipelineState, logFilePath) => {
     if (!appConfig.lastSuccessfulCommitHash || appConfig.lastSuccessfulCommitHash === appConfig.commitHash) {
         logProcess('No stable version to rollback to or already on last good version.', true);
@@ -297,7 +434,7 @@ const rollback = async (appId, appConfig, io, targetPath, lastStep, logProcess, 
                 .filter(Boolean)
                 .join(' && ');
             await new Promise((resolve, reject) => {
-                const child = exec(normalizedScript, { cwd: targetPath, maxBuffer: 10 * 1024 * 1024 });
+                const child = exec(normalizedScript, { cwd: targetPath, maxBuffer: 10 * 1024 * 1024, windowsHide: true });
                 child.stdout.on('data', data => { io.emit(`deploy-log-${appId}`, data.toString()); fs.appendFileSync(logFilePath, data); });
                 child.stderr.on('data', data => { io.emit(`deploy-log-${appId}`, data.toString()); fs.appendFileSync(logFilePath, data); });
                 child.on('close', code => code !== 0 ? reject(new Error('Rollback build failed')) : resolve());
@@ -307,13 +444,7 @@ const rollback = async (appId, appConfig, io, targetPath, lastStep, logProcess, 
         // 5. Restart PM2 with original version
         logProcess('Restarting PM2 with original version...', true);
         await pm2Service.connectPM2();
-        const startOpts = {
-            name: appConfig.name,
-            cwd: targetPath,
-            script: appConfig.pm2Script || 'npm',
-            updateEnv: true,
-            env: appConfig.env || {}
-        };
+        const startOpts = buildPM2StartOptions(appConfig, targetPath, true);
 
         try {
             await pm2Service.reloadApp(appConfig.name, startOpts);
@@ -360,7 +491,7 @@ export const performDeployment = async (appId, io) => {
         fs.mkdirSync(wsDir, { recursive: true });
     }
 
-    fs.writeFileSync(logFilePath, `--- Deployment Started at ${new Date().toISOString()} ---\n`);
+    fs.appendFileSync(logFilePath, `\n\n--- Deployment Started at ${new Date().toISOString()} ---\n`);
 
     const logProcess = (msg, isSystem = false) => {
         const formattedMsg = isSystem ? `[pm2me] ${msg}` : msg;
@@ -421,32 +552,47 @@ export const performDeployment = async (appId, io) => {
         logProcess('Starting PM2', true);
         await pm2Service.connectPM2();
 
-        let pmArgs = ['start'];
-        if (appConfig.pm2Args) pmArgs = appConfig.pm2Args.split(' ').filter(Boolean);
-
-        let startOptions = {
-            name: appConfig.name,
-            cwd: targetPath,
-            script: appConfig.pm2Script || 'npm',
-            args: appConfig.pm2Script === 'npm' ? pmArgs : [],
-            env: appConfig.env || {}
-        };
-
-        if (appConfig.ecosystemFile) startOptions = path.join(targetPath, appConfig.ecosystemFile);
+        const startOptions = buildPM2StartOptions(appConfig, targetPath, false);
 
         logProcess('Updating Application in PM2', true);
+
+        // Delete previous process if the app was renamed
+        if (appConfig.previousName) {
+            logProcess(`App renamed. Removing old PM2 process: ${appConfig.previousName}`, true);
+            try {
+                await pm2Service.deleteApp(appConfig.previousName);
+            } catch (err) {
+                // If it wasn't running or already deleted, ignore.
+            }
+            delete appConfig.previousName;
+            await db.write();
+        }
+
         let exists = null;
         try {
             const list = await pm2Service.listApps();
             exists = list.find(a => a.name === appConfig.name);
             if (exists) {
-                const updateOptions = { ...startOptions, updateEnv: true };
-                if (appConfig.zeroDowntime !== false) {
-                    logProcess('Zero-downtime Reloading with new environment', true);
-                    await pm2Service.reloadApp(appConfig.name, updateOptions);
+                const currentInterpreter = exists.pm2_env ? exists.pm2_env.exec_interpreter : null;
+                const currentScriptPath = exists.pm2_env ? exists.pm2_env.pm_exec_path : null;
+                const scriptBaseName = currentScriptPath ? path.basename(currentScriptPath) : null;
+
+                const interpreterChanged = startOptions.interpreter && currentInterpreter !== startOptions.interpreter;
+                const scriptChanged = scriptBaseName !== null && scriptBaseName !== startOptions.script;
+
+                if (interpreterChanged || scriptChanged) {
+                    logProcess('Runtime configuration changed (Script or Interpreter). Recreating process...', true);
+                    await pm2Service.deleteApp(appConfig.name);
+                    await pm2Service.startApp(startOptions);
                 } else {
-                    logProcess('Restarting (Non Zero-downtime) with new environment', true);
-                    await pm2Service.restartApp(appConfig.name, updateOptions);
+                    const updateOptions = { ...startOptions, updateEnv: true };
+                    if (appConfig.zeroDowntime !== false) {
+                        logProcess('Zero-downtime Reloading with new environment', true);
+                        await pm2Service.reloadApp(appConfig.name, updateOptions);
+                    } else {
+                        logProcess('Restarting (Non Zero-downtime) with new environment', true);
+                        await pm2Service.restartApp(appConfig.name, updateOptions);
+                    }
                 }
             } else {
                 logProcess('Fresh Starting', true);
@@ -532,6 +678,14 @@ export const performDeployment = async (appId, io) => {
 // Build and Deploy an App
 router.post('/deploy/:appId', async (req, res) => {
     try {
+        const app = db.data.apps.find(a => a.id === req.params.appId);
+        if (app) {
+            const logFilePath = path.join(getWorkspacesDir(), `${app.id}_deploy.log`);
+            const deployString = `[pm2me] Action: Manual deployment triggered by user\n`;
+            if (fs.existsSync(logFilePath)) fs.appendFileSync(logFilePath, deployString);
+            if (req.io) req.io.emit(`deploy-log-${app.id}`, deployString.trim());
+        }
+
         await performDeployment(req.params.appId, req.io);
         res.json({ success: true });
     } catch (err) {
@@ -545,50 +699,16 @@ router.get('/deploy/:appId/logs', async (req, res) => {
     const appConfig = db.data.apps.find(a => a.id === appId);
     if (!appConfig) return res.status(404).json({ error: 'App not found' });
 
-    const logFilePath = path.join(workspacesDir, `${appConfig.name}_deploy.log`);
+    const logFilePath = path.join(getWorkspacesDir(), `${appConfig.id}_deploy.log`);
     let logs = '';
 
     if (fs.existsSync(logFilePath)) {
         logs += fs.readFileSync(logFilePath, 'utf8');
     }
 
-    try {
-        await pm2Service.connectPM2();
-        const list = await pm2Service.listApps();
-        const pmApp = list.find(app => app.name === appConfig.name);
-        if (pmApp && pmApp.pm2_env) {
-            const outPath = pmApp.pm2_env.pm_out_log_path;
-            const errPath = pmApp.pm2_env.pm_err_log_path;
-
-            const readTailLines = (filePath, prefix = '', maxLines = 100) => {
-                if (!filePath || !fs.existsSync(filePath)) return '';
-                const stats = fs.statSync(filePath);
-                const size = stats.size;
-                const maxBytes = 50000;
-                const start = Math.max(0, size - maxBytes);
-                const buffer = Buffer.alloc(Math.max(0, size - start));
-                if (buffer.length === 0) return '';
-                const fd = fs.openSync(filePath, 'r');
-                fs.readSync(fd, buffer, 0, buffer.length, start);
-                fs.closeSync(fd);
-                const text = buffer.toString('utf8');
-                const lines = text.split('\n').filter(l => l.trim());
-                return lines.slice(-maxLines).map(line => `${prefix} | ${line}`).join('\n');
-            };
-
-            const outLogs = readTailLines(outPath, `[out]`);
-            const errLogs = readTailLines(errPath, `[err]`);
-
-            if (outLogs || errLogs) {
-                logs += '\n\n--- 🔵 PM2 Execution Logs ---\n';
-                if (errLogs) logs += errLogs + '\n';
-                if (outLogs) logs += outLogs + '\n';
-            }
-        }
-    } catch (err) {
-        console.error('Failed to fetch PM2 logs', err);
-    }
-
+    // Return only deployment events - PM2 native logs are served separately via /pm2-logs
+    // Return just the historically preserved unified log file
+    // Realtime events are handled via PM2 Event bus in app.js and broadcasted automatically
     res.send(logs);
 });
 
@@ -668,6 +788,17 @@ router.post('/webhook', async (req, res) => {
         for (const app of appsToDeploy) {
             try {
                 await notificationService.notifyAll(app.name, 'Push event received, triggering auto-sync...');
+
+                // Append push event to Event Log history
+                const logFilePath = path.join(getWorkspacesDir(), `${app.id}_deploy.log`);
+                const pushLogString = `[pm2me] Auto-Sync triggered via GitHub Webhook (Branch: ${branch})\n`;
+                if (fs.existsSync(logFilePath)) {
+                    fs.appendFileSync(logFilePath, pushLogString);
+                }
+                if (req.io) {
+                    req.io.emit(`deploy-log-${app.id}`, pushLogString.trim());
+                }
+
                 // Trigger deployment directly
                 performDeployment(app.id, req.io).catch(err => {
                     console.error(`Auto-Sync failed for ${app.name}:`, err);
@@ -723,12 +854,15 @@ router.get('/nginx/info', async (req, res) => {
 
         // Check if nginx binary exists / is installed
         try {
-            const checkCmd = isWindows
-                ? `"${NGINX_BIN}" -v`
-                : 'nginx -v';
-            const { stderr } = await execAsync(checkCmd);
-            const match = (stderr || '').match(/nginx\/([\\d.]+)/);
-            info.version = match ? match[1] : 'unknown';
+            if (isWindows) {
+                const { stderr } = await execFileAsync(NGINX_BIN, ['-v'], { windowsHide: true });
+                const match = (stderr || '').match(/nginx\/([\d.]+)/);
+                info.version = match ? match[1] : 'unknown';
+            } else {
+                const { stderr } = await execAsync(`${NGINX_BIN} -v`, { windowsHide: true });
+                const match = (stderr || '').match(/nginx\/([\d.]+)/);
+                info.version = match ? match[1] : 'unknown';
+            }
             info.installed = true;
         } catch {
             info.installed = false;
@@ -746,10 +880,10 @@ router.get('/nginx/status', async (req, res) => {
         let running = false;
         try {
             if (isWindows) {
-                const { stdout } = await execAsync('tasklist /FI "IMAGENAME eq nginx.exe" /NH');
+                const { stdout } = await execFileAsync('tasklist.exe', ['/FI', 'IMAGENAME eq nginx.exe', '/NH'], { windowsHide: true });
                 running = stdout.toLowerCase().includes('nginx.exe');
             } else {
-                const { stdout } = await execAsync('pgrep -x nginx');
+                const { stdout } = await execAsync('pgrep -x nginx', { windowsHide: true });
                 running = stdout.trim().length > 0;
             }
         } catch {
@@ -837,7 +971,7 @@ router.post('/nginx/enable', async (req, res) => {
     try {
         const { filePath, name } = req.body;
         const enabledPath = `/etc/nginx/sites-enabled/${name}`;
-        if (!fs.existsSync(enabledPath)) await execAsync(`sudo ln -s "${filePath}" "${enabledPath}"`);
+        if (!fs.existsSync(enabledPath)) await execAsync(`sudo ln -s "${filePath}" "${enabledPath}"`, { windowsHide: true });
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -850,7 +984,7 @@ router.post('/nginx/disable', async (req, res) => {
     try {
         const { name } = req.body;
         const enabledPath = `/etc/nginx/sites-enabled/${name}`;
-        if (fs.existsSync(enabledPath)) await execAsync(`sudo rm "${enabledPath}"`);
+        if (fs.existsSync(enabledPath)) await execAsync(`sudo rm "${enabledPath}"`, { windowsHide: true });
         res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -895,7 +1029,7 @@ router.post('/nginx/action', async (req, res) => {
 
     try {
         let cmd;
-        const nginxCwd = isWindows ? 'C:\\nginx' : '/';
+        const nginxCwd = isWindows ? path.dirname(NGINX_BIN) : undefined;
 
         if (isWindows) {
             const bin = `"${NGINX_BIN}"`;
@@ -918,7 +1052,7 @@ router.post('/nginx/action', async (req, res) => {
             cmd = cmdMap[action];
         }
 
-        const { stdout, stderr } = await execAsync(cmd, { cwd: nginxCwd }).catch(err => ({
+        const { stdout, stderr } = await execAsync(cmd, { cwd: nginxCwd, windowsHide: true }).catch(err => ({
             stdout: err.stdout || '',
             stderr: err.stderr || err.message,
         }));
@@ -963,7 +1097,7 @@ router.get('/setup/info', (req, res) => {
     const pathPresets = serverIsWindows
         ? ['C:\\pm2me\\apps', 'C:\\Users\\apps', 'D:\\pm2me\\apps']
         : ['/opt/pm2me/apps', '/home/apps', '/var/pm2me/apps'];
-    
+
     // Read version from package.json
     let version = 'unknown';
     try {
@@ -971,7 +1105,7 @@ router.get('/setup/info', (req, res) => {
         const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
         version = pkg.version || 'unknown';
     } catch { }
-    
+
     res.json({
         os: serverIsWindows ? 'windows' : 'linux',
         isWindows: serverIsWindows,
@@ -990,21 +1124,21 @@ router.post('/setup/complete', async (req, res) => {
         }
         // Hash with bcrypt (same as auth.js uses for verification)
         const passwordHash = await bcrypt.hash(adminPassword, 10);
-        
+
         // Update db data
         db.data.admin = { passwordHash };
         db.data.settings = { ...db.data.settings, appsPath };
         db.data.setupComplete = true;
-        
+
         // Force write to database
         await db.write();
-        
+
         // Verify the data was written by reading it back
         await db.read();
-        
+
         // Ensure apps dir exists
         fs.mkdirSync(appsPath, { recursive: true });
-        
+
         console.log('Setup completed successfully. Database saved to:', db.data);
         res.json({ success: true });
     } catch (err) {

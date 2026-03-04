@@ -460,7 +460,7 @@ const fetchBranches = async () => {
     return
   }
   isFetchingBranches.value = true
-  availableBranches.value = []
+  availableBranches.value = [form.value.branch]
   try {
     const res = await fetch('/api/git/branches', {
       method: 'POST',
@@ -472,8 +472,11 @@ const fetchBranches = async () => {
     })
     const branches = await res.json()
     if (branches.length > 0) {
+      // console.log('branches',branches);
       availableBranches.value = branches
-      form.value.branch = branches.find(b => b === 'main' || b === 'master') || branches[0]
+      if (!form.value.branch) {
+        form.value.branch = branches.find(b => b === 'main' || b === 'master') || branches[0]
+      }
     } else {
       alert('No branches found or repo is private (needs token)')
     }
